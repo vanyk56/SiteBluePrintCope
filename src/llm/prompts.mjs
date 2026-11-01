@@ -59,7 +59,7 @@ export function pagePrompt(site, p, { lang = 'ru', images = [], budget = 90000 }
     'ЗАДАНИЕ. Для КАЖДОЙ секции выше (кроме помеченных как «общий компонент, уже описан») напиши блок, который начинается строкой `### ИмяКомпонента` — ровно с тем же именем. Внутри блока до ~180 слов, пунктами:',
     '- **Визуал:** что видно на скриншоте, но не передано данными — декоративные фигуры и фоны, иллюстрации, бейджи, разделители, эффекты (blur, градиенты, тени), выравнивание и плотность.',
     '- **Сетка и адаптив:** колонки на десктопе и мобильном, что скрывается/переставляется, sticky/fixed.',
-    '- **Интерактив и анимации:** hover, появление при скролле, слайдеры, табы, аккордеоны, меню — если видно или указано в фактах.',
+    '- **Интерактив и анимации:** hover, появление при скролле, слайдеры, табы, аккордеоны, меню — если видно или указано в фактах. То, что в фактах помечено «Уже работает в сгенерированном коде» (MobileMenu, ModalTrigger, CartButton/AddToCart, Disclosure, табы/фильтры каталога), не переписывай — только поправь вид, если он расходится со скриншотом.',
     '- **Правки каркаса:** только конкретные расхождения со скриншотом с точными Tailwind-классами. Если всё совпадает — напиши «Каркас соответствует скриншоту».',
     'Не повторяй тексты страницы и не переписывай каркас целиком. ' + (LANG[lang] || LANG.ru),
   ].join('\n');
@@ -113,4 +113,31 @@ export function splitSections(text) {
   for (const part of parts) { const nl = part.indexOf('\n'); const head = (nl < 0 ? part : part.slice(0, nl)).trim().replace(/[*#]/g, ''); out.set(head, nl < 0 ? '' : part.slice(nl + 1).trim()); }
   if (pre && pre.trim()) out.set('_intro', pre.trim());
   return out;
+}
+
+// ---------- self-healing build: minimal patches for compile errors ----------
+export const FIX_SYSTEM = [
+  'You fix build errors in a generated Next.js 16 (App Router, TypeScript, React 19) + Tailwind CSS v4 project.',
+  'Rules: change as little as possible; keep texts, classes and structure; never delete whole components;',
+  "client hooks/handlers need 'use client' at the top of the file; custom elements need a JSX type declaration;",
+  'do not add dependencies; do not touch package.json; keep components/interactive/* and lib/catalog.ts APIs (MobileMenu, ModalTrigger, CartProvider/CartButton/AddToCart, Disclosure, filterCatalog) — fix the call site instead.',
+  'Answer ONLY with SEARCH/REPLACE blocks, one per change, exactly in this format:',
+  'FILE: path/relative/to/project.tsx',
+  '<<<<<<< SEARCH',
+  'exact existing lines (copied verbatim, enough to be unique)',
+  '=======',
+  'replacement lines',
+  '>>>>>>> REPLACE',
+].join('\n');
+
+export function fixPrompt({ files, output = '' }) {
+  const L = ['`next build` failed. Fix the errors below.', ''];
+  for (const f of files) {
+    L.push(`### ${f.file}`, '', 'Errors:');
+    for (const e of f.errors.slice(0, 8)) L.push(`- ${e.line ? `line ${e.line}${e.col ? ':' + e.col : ''}: ` : ''}${e.message}`);
+    L.push('', '```tsx', f.text.split('\n').map((l, i) => `${String(i + 1).padStart(4)}| ${l}`).join('\n'), '```', '');
+  }
+  if (output) L.push('Build output (tail):', '```', output.slice(-3000), '```', '');
+  L.push('Line numbers ("  12| ") are for orientation only — do NOT include them in SEARCH/REPLACE blocks.');
+  return L.join('\n');
 }

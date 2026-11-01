@@ -40,6 +40,10 @@ export function extractPage(opts) {
   const r1 = (n) => Math.round(n * 10) / 10;
   const abs = (u) => { try { return new URL(u, location.href).href; } catch (e) { return u; } };
   const lenOrRaw = (v) => (/^-?[\d.]+px$/.test(v) ? pxn(v) : v);
+  const URL_RE = /url\(\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([^)\s]*))\s*\)/g;
+  const urlsIn = (v) => [...String(v || '').matchAll(URL_RE)].map((m) => (m[1] ?? m[2] ?? m[3] ?? '').replace(/\\(.)/g, '$1')).filter(Boolean);
+  const colorsInBg = (v) => { v = String(v || ''); let out = '', last = 0; for (const m of v.matchAll(URL_RE)) { out += colorsIn(v.slice(last, m.index)) + m[0]; last = m.index + m[0].length; } return out + colorsIn(v.slice(last)); };
+  const pickSet = (ss) => { let best = '', bw = -1; for (const part of String(ss || '').split(/,\s+/)) { const [u, d] = part.trim().split(/\s+/); if (!u) continue; const w = d ? parseFloat(d) * (/x$/.test(d) ? 1000 : 1) : 1; if (w > bw) { bw = w; best = u; } } return best; };
 
   function expectedDisplay(t) {
     if (REPLACED.has(t)) return 'block';
@@ -63,7 +67,8 @@ export function extractPage(opts) {
   }
   function siblingIndex(el) { let i = 0, p = el; while ((p = p.previousElementSibling)) i++; return i; }
   function renderChildren(el) {
-    const src = el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes;
+    const sr = el.shadowRoot || (window.__sbShadowOf ? window.__sbShadowOf(el) : null); // closed roots via inpage/hooks.mjs
+    const src = sr ? sr.childNodes : el.childNodes;
     const out = [];
     for (const n of src) {
       if (n.nodeType === 1 && n.tagName === 'SLOT') { const as = n.assignedNodes({ flatten: true }); for (const x of (as.length ? as : n.childNodes)) out.push(x); }
@@ -121,16 +126,17 @@ export function extractPage(opts) {
     if (rad.some((v) => v && v !== '0%')) s.radius = rad;
     const bg = toHex(cs.backgroundColor); if (!isClear(bg)) s['background-color'] = bg;
     if (cs.backgroundImage && cs.backgroundImage !== 'none') {
-      s['background-image'] = colorsIn(cs.backgroundImage).slice(0, 1500);
+      s['background-image'] = colorsInBg(cs.backgroundImage).slice(0, cs.backgroundImage.includes('url(') ? 62000 : 1500);
       if (!/^auto( auto)?$/.test(cs.backgroundSize)) s['background-size'] = cs.backgroundSize;
       if (cs.backgroundPosition !== '0% 0%') s['background-position'] = cs.backgroundPosition;
       if (cs.backgroundRepeat !== 'repeat') s['background-repeat'] = cs.backgroundRepeat;
       if (cs.backgroundAttachment === 'fixed') s['background-attachment'] = 'fixed';
-      for (const mm of cs.backgroundImage.matchAll(/url\(["']?(.*?)["']?\)/g)) bgImages.push({ src: mm[1].startsWith('data:') ? mm[1].slice(0, 60000) : abs(mm[1]), w: Math.round(r.width), h: Math.round(r.height), size: cs.backgroundSize });
+      for (const u of urlsIn(cs.backgroundImage)) bgImages.push({ src: u.startsWith('data:') ? u.slice(0, 60000) : abs(u), w: Math.round(r.width), h: Math.round(r.height), size: cs.backgroundSize });
     }
     if (cs.backgroundClip === 'text' || cs.webkitBackgroundClip === 'text') s['background-clip'] = 'text';
     if (cs.boxShadow !== 'none') s['box-shadow'] = colorsIn(cs.boxShadow);
     if (cs.opacity !== '1') s.opacity = +cs.opacity;
+    { const lc = cs.webkitLineClamp || cs.getPropertyValue('-webkit-line-clamp'); if (lc && lc !== 'none' && parseInt(lc, 10) > 0) s['line-clamp'] = parseInt(lc, 10); }
     if (cs.transform !== 'none') s.transform = cs.transform;
     if (cs.filter !== 'none') s.filter = colorsIn(cs.filter);
     const bdf = cs.backdropFilter || cs.webkitBackdropFilter; if (bdf && bdf !== 'none') s['backdrop-filter'] = bdf;
@@ -194,7 +200,11 @@ export function extractPage(opts) {
     if (ps.width !== 'auto') o.w = lenOrRaw(ps.width);
     if (ps.height !== 'auto') o.h = lenOrRaw(ps.height);
     if (!isClear(bg)) o.bg = bg;
-    if (ps.backgroundImage !== 'none') o.bgi = colorsIn(ps.backgroundImage).slice(0, 400);
+    if (ps.backgroundImage !== 'none') {
+      const us = urlsIn(ps.backgroundImage);
+      for (const u of us) bgImages.push({ src: u.startsWith('data:') ? u.slice(0, 60000) : abs(u), w: 0, h: 0, size: ps.backgroundSize, pseudo: which });
+      o.bgi = colorsInBg(ps.backgroundImage).slice(0, us.length ? 62000 : 1500);
+    }
     if (pxn(ps.borderTopWidth) > 0) o.border = pxn(ps.borderTopWidth) + 'px ' + ps.borderTopStyle + ' ' + toHex(ps.borderTopColor);
     if (ps.borderTopLeftRadius !== '0px') o.radius = lenOrRaw(ps.borderTopLeftRadius);
     if (ps.boxShadow !== 'none') o.shadow = colorsIn(ps.boxShadow);
@@ -278,19 +288,21 @@ export function extractPage(opts) {
   }
   function registerImg(img, cs, r) {
     let src = img.currentSrc || img.src || '';
-    const ds = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original');
-    if ((!src || src.startsWith('data:')) && ds) src = ds;
+    const ds = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || pickSet(img.getAttribute('data-srcset') || img.getAttribute('data-lazy-srcset'));
+    if ((!src || src.startsWith('data:') || /(placeholder|blank|spacer|transparent|lazy)[^/]*\.(gif|png|svg)(\?|$)/i.test(src)) && ds) src = ds;
+    if (!src) src = pickSet(img.getAttribute('srcset'));
     const homeLink = img.closest('a[href="/"], a[href="' + location.origin + '/"]');
     images.push({
       src: src.startsWith('data:') ? src.slice(0, 120000) : abs(src), alt: img.getAttribute('alt') || '', nw: img.naturalWidth, nh: img.naturalHeight,
       w: Math.round(r.width), h: Math.round(r.height), y: Math.round(r.top + sy), fit: cs.objectFit,
       logo: /logo|brand/i.test((img.alt || '') + ' ' + (img.getAttribute('class') || '') + ' ' + src) || !!(homeLink && img.closest('header, nav, footer')),
-      lazy: img.loading === 'lazy' || undefined, srcset: img.getAttribute('srcset') ? img.getAttribute('srcset').slice(0, 1500) : undefined,
+      lazy: img.loading === 'lazy' || img.hasAttribute('data-src') || undefined, pending: !(img.complete && img.naturalWidth) || undefined, srcset: img.getAttribute('srcset') ? img.getAttribute('srcset').slice(0, 1500) : undefined,
     });
     return images.length - 1;
   }
   function registerMedia(el, t, r) {
-    const rec = { type: t, w: Math.round(r.width), h: Math.round(r.height), y: Math.round(r.top + sy) };
+    const rec = { type: t, w: Math.round(r.width), h: Math.round(r.height), x: Math.round(r.left + sx), y: Math.round(r.top + sy) };
+    try { el.setAttribute('data-sb-media', String(media.length)); } catch (e) {}
     if (t === 'video') { const so = el.querySelector('source'); rec.src = abs(el.currentSrc || el.src || (so && so.src) || ''); if (el.poster) rec.poster = abs(el.poster); rec.autoplay = el.autoplay; rec.loop = el.loop; rec.muted = el.muted; }
     else if (t === 'iframe') { rec.src = abs(el.src || el.getAttribute('data-src') || ''); rec.title = el.title || ''; }
     else if (t === 'canvas') rec.note = 'canvas/WebGL — рисуется скриптом';
@@ -314,6 +326,11 @@ export function extractPage(opts) {
       try { const lab = (el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]')) || el.closest('label'); if (lab) { const c = lab.cloneNode(true); c.querySelectorAll('select,textarea,input,option,datalist').forEach((x) => x.remove()); const tx = (c.textContent || '').replace(/\s+/g, ' ').trim(); if (tx) a.labelText = tx.slice(0, 160); } } catch (e) {}
     }
     if (t === 'label' && g('for')) a.for = g('for');
+    if ((t === 'td' || t === 'th') && el.colSpan > 1) a.colspan = el.colSpan;
+    if ((t === 'td' || t === 'th') && el.rowSpan > 1) a.rowspan = el.rowSpan;
+    if (t === 'th' && g('scope')) a.scope = g('scope');
+    if (el.disabled === true || g('aria-disabled') === 'true') a.disabled = true;
+    for (const [k, nm] of [['selected', 'aria-selected'], ['pressed', 'aria-pressed'], ['current', 'aria-current']]) if (g(nm) != null) a[k] = g(nm).slice(0, 20);
     if (t === 'form') { a.action = g('action') || ''; a.method = (g('method') || 'get').toLowerCase(); }
     if (g('aria-expanded') != null) a.expanded = g('aria-expanded');
     if (t === 'time' && g('datetime')) a.datetime = g('datetime');
@@ -343,7 +360,28 @@ export function extractPage(opts) {
     if (SKIP.has(t)) return null;
     if (count >= MAX_NODES) { truncated = true; return null; }
     const cs = getComputedStyle(el);
-    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse' || cs.opacity === '0') return null;
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse') return null;
+    let fade = false;
+    if (cs.opacity === '0') {
+      // fade-in content (lazy images, scroll-reveal cards) stays at opacity:0 until loaded / scrolled into view — keep it,
+      // otherwise its images and texts are lost. Hover-swap images (a visible image at the same spot) stay hidden.
+      const r0 = el.getBoundingClientRect();
+      const unloaded = (im) => !(im.complete && im.naturalWidth) || im.hasAttribute('data-src') || im.hasAttribute('data-srcset');
+      if (t === 'img') {
+        const host = el.parentElement && (el.parentElement.parentElement || el.parentElement);
+        const swap = !!host && [...host.querySelectorAll('img')].slice(0, 12).some((im) => { if (im === el) return false; const c2 = getComputedStyle(im); if (c2.opacity === '0' || c2.visibility === 'hidden' || c2.display === 'none') return false; const r2 = im.getBoundingClientRect(); return Math.abs(r2.left - r0.left) < 4 && Math.abs(r2.top - r0.top) < 4 && r2.width > 0; });
+        if (!swap) fade = true;
+        else if (!(r0.width > 0)) return null;
+      } else {
+        const flow = cs.position === 'static' || cs.position === 'relative' || cs.position === 'sticky';
+        const REVEAL = /(^|[\s_-])(aos|reveal|fade|animate|animated|wow|appear|inview|in-view|scroll|motion|lazy|observe)/i;
+        const revealSig = () => REVEAL.test(el.getAttribute('class') || '') || el.hasAttribute('data-aos') || el.hasAttribute('data-animate') || el.hasAttribute('data-scroll') || /opacity:\s*0/.test(el.getAttribute('style') || '');
+        const first = (e) => String(e.getAttribute('class') || '').trim().split(/\s+/)[0] || '';
+        const sibVisible = () => { const p = el.parentElement; if (!p) return false; let n = 0; for (const sb of p.children) { if (++n > 60) break; if (sb !== el && sb.tagName === el.tagName && first(sb) === first(el) && getComputedStyle(sb).opacity !== '0') return true; } return false; };
+        fade = flow && r0.width > 0 && r0.height > 0 && ([...el.querySelectorAll('img')].slice(0, 6).some(unloaded) || revealSig() || sibVisible());
+        if (!fade) return null;
+      }
+    }
     if (cs.display === 'contents') {
       // transparent wrapper: walk children as if they were ours (rare)
     }
@@ -356,7 +394,9 @@ export function extractPage(opts) {
     if (id && id.length < 60 && !/^[:«]|^\d|^radix-|^headlessui-|^react-aria|^mantine-|^:r/.test(id)) node.id = id;
     const cls = cleanClasses(el); if (cls) node.c = cls;
     const a = attrsOf(el, t); if (a) node.a = a;
-    const s = styleDiff(el, cs, pcs, t, r, pdisp); if (Object.keys(s).length) node.s = s;
+    const s = styleDiff(el, cs, pcs, t, r, pdisp);
+    if (fade) { delete s.opacity; node.fade = 1; if (s.transform && /^matrix\(1, 0, 0, 1, [-\d.]+, [-\d.]+\)$/.test(s.transform)) delete s.transform; }
+    if (Object.keys(s).length) node.s = s;
     if (r.width <= 1.5 && r.height <= 1.5 && cs.position === 'absolute' && cs.overflow !== 'visible') node.sr = 1;
     if (!LITE) { const pb = pseudo(el, '::before'); if (pb) node.pb = pb; const pa = pseudo(el, '::after'); if (pa) node.pa = pa; }
     if (el.matches && el.matches(IX_SEL)) markInteractive(el, node, t);
@@ -369,8 +409,8 @@ export function extractPage(opts) {
     const pre = /pre/.test(cs.whiteSpace);
     const flush = () => {
       if (!pending) return;
-      let tx = pre ? pending.replace(/\uE000/g, '\n') : pending.replace(/\s+/g, ' ').replace(/ ?\uE000 ?/g, '\n');
-      if (tx.trim() || (k.length && tx === ' ')) k.push(tx);
+      let tx = pre ? pending.replace(/\uE000/g, '\n') : pending.replace(/[ \t\n\r\f]+/g, ' ').replace(/ ?\uE000 ?/g, '\n');
+      if (/[^ \t\n\r\f]/.test(tx) || (k.length && tx === ' ')) k.push(tx);
       pending = '';
     };
     for (const ch of renderChildren(el)) {
@@ -476,6 +516,21 @@ export function extractPage(opts) {
               }
               continue;
             }
+            // ::before / ::after rules: which insets and sizes are authored (computed values of positioned pseudos are used px,
+            // e.g. a derived "bottom" that differs per card and would split identical cards into variants)
+            const selT = rule.selectorText || '';
+            if (active && /::?(before|after)\b/.test(selT)) {
+              let pins = null;
+              for (let i = 0; i < st.length; i++) { const p = st[i]; if (INS_P[p]) (pins = pins || {})[INS_P[p]] = st.getPropertyValue(p).trim(); else if (SIZE_P[p]) (pins = pins || {})[SIZE_P[p]] = st.getPropertyValue(p).trim(); }
+              for (const part of splitSel(selT)) {
+                const m = /^(.*?)::?(before|after)$/.exec(part.trim()); if (!m) continue;
+                const base = m[1].trim() || '*'; if (STATE.test(base) || base.includes('&')) continue;
+                let els = []; try { els = document.querySelectorAll(base); } catch (e) {}
+                let k = 0; const key = m[2] === 'before' ? '_pib' : '_pia';
+                for (const el of els) { if (k++ > 500) break; const n = elNode.get(el); if (!n || !n[m[2] === 'before' ? 'pb' : 'pa']) continue; Object.assign(n[key] || (n[key] = {}), pins || {}); }
+              }
+              continue;
+            }
             let sz = null, grp = null, ins = null;
             for (let i = 0; i < st.length; i++) {
               const p = st[i];
@@ -507,7 +562,7 @@ export function extractPage(opts) {
       }
     };
     const extra = new Map((window.__sbCss || []).map((x) => [x.href, x.text]));
-    for (const sh of document.styleSheets) {
+    for (const sh of [...document.styleSheets, ...(document.adoptedStyleSheets || [])]) {
       if (Date.now() - T0 > BUDGET) { ruleStats.capped = true; break; }
       let ok = !sh.disabled; try { const mt = sh.media && sh.media.mediaText; if (mt && ok) ok = window.matchMedia(mt).matches; } catch (e) {}
       let rules = null; try { rules = sh.cssRules; } catch (e) {}
@@ -524,6 +579,14 @@ export function extractPage(opts) {
         n.ai = ['t', 'r', 'b', 'l'].filter((k) => a[k] && !/^(auto|initial|unset|revert|revert-layer)$/.test(a[k])).join('');
       }
       delete n._ai;
+      for (const [key, pk] of [['_pib', 'pb'], ['_pia', 'pa']]) {
+        const ps = n[pk]; const a = n[key]; delete n[key];
+        if (!ps || !a || ruleStats.capped) continue;
+        const live = (v) => v && !/^(auto|initial|unset|revert|revert-layer)$/.test(v);
+        if (ps.inset) ps.inset = ps.inset.map((v, i) => { const av = a['trbl'[i]]; return !live(av) ? 'auto' : /%$/.test(av) ? av : v; });
+        if (ps.w !== undefined && !live(a.w)) delete ps.w; else if (ps.w !== undefined && /%$/.test(a.w)) ps.w = a.w;
+        if (ps.h !== undefined && !live(a.h)) delete ps.h; else if (ps.h !== undefined && /%$/.test(a.h)) ps.h = a.h;
+      }
       if (el.style && (el.style.width || el.style.height)) { if (el.style.width && el.style.width !== 'auto') n._aw = el.style.width; if (el.style.height && el.style.height !== 'auto') n._ah = el.style.height; }
       if (n._aw || n._ah) {
         const cs = getComputedStyle(el);
@@ -557,7 +620,7 @@ export function extractPage(opts) {
     area: a.closest('header,[role="banner"]') ? 'header' : a.closest('nav') ? 'nav' : a.closest('footer,[role="contentinfo"]') ? 'footer' : 'main',
   })).filter((l) => /^https?:/.test(l.href));
 
-  let forms = [], cssVars = {}, fontFaces = [], keyframes = {}, mediaQueries = [], loadedFonts = [], tech = [], html = '', sheets = [];
+  let forms = [], cssVars = {}, fontFaces = [], keyframes = {}, mediaQueries = [], loadedFonts = [], tech = [], html = '', sheets = [], usedChars = '';
   if (!LITE) {
     const labText = (l) => { const c = l.cloneNode(true); c.querySelectorAll('select,textarea,input,option,datalist').forEach((x) => x.remove()); return (c.textContent || '').replace(/\s+/g, ' ').trim(); };
     const fieldLabel = (i) => { try { if (i.id) { const l = document.querySelector('label[for="' + CSS.escape(i.id) + '"]'); if (l) return labText(l); } } catch (e) {} const l2 = i.closest('label'); if (l2) return labText(l2); return i.getAttribute('aria-label') || ''; };
@@ -574,7 +637,7 @@ export function extractPage(opts) {
     const scan = (rules, base, depth) => {
       for (const rule of rules) {
         try {
-          if (rule.type === 5) fontFaces.push({ family: (rule.style.getPropertyValue('font-family') || '').replace(/["']/g, '').trim(), src: (rule.style.getPropertyValue('src') || '').slice(0, 1500), weight: rule.style.getPropertyValue('font-weight') || '400', style: rule.style.getPropertyValue('font-style') || 'normal', display: rule.style.getPropertyValue('font-display') || '', base });
+          if (rule.type === 5) fontFaces.push({ family: (rule.style.getPropertyValue('font-family') || '').replace(/["']/g, '').trim(), src: (rule.style.getPropertyValue('src') || '').slice(0, 1500), weight: rule.style.getPropertyValue('font-weight') || '400', style: rule.style.getPropertyValue('font-style') || 'normal', display: rule.style.getPropertyValue('font-display') || '', unicodeRange: (rule.style.getPropertyValue('unicode-range') || '').slice(0, 2000), base });
           else if (rule.type === 7) { if (!keyframes[rule.name]) keyframes[rule.name] = rule.cssText.slice(0, 2500); }
           else if (rule.type === 1 && rule.selectorText && ROOTSEL.test(rule.selectorText)) { for (let i = 0; i < rule.style.length; i++) { const p = rule.style[i]; if (p.startsWith('--')) names.add(p); } }
           if (rule.type === 4 && mediaQueries.length < 400) mediaQueries.push(rule.conditionText || (rule.media && rule.media.mediaText) || '');
@@ -583,6 +646,15 @@ export function extractPage(opts) {
       }
     };
     for (const sh of document.styleSheets) { sheets.push(sh.href || 'inline'); try { scan(sh.cssRules, sh.href || location.href, 0); } catch (e) {} }
+    for (const sh of document.adoptedStyleSheets || []) { sheets.push('adopted'); try { scan(sh.cssRules, location.href, 0); } catch (e) {} }
+    // fonts created from JS (new FontFace(...)) are in no stylesheet — captured by inpage/hooks.mjs
+    try {
+      for (const f of (window.__sbFontFaces ? window.__sbFontFaces() : [])) {
+        const d = f.descriptors || {};
+        if (f.data && f.data.length > 4e6) continue;
+        fontFaces.push({ family: f.family, src: f.data ? 'url("' + f.data + '")' : String(f.src || '').slice(0, 1500), weight: d.weight || '400', style: d.style || 'normal', display: d.display || '', unicodeRange: d.unicodeRange || '', base: location.href, js: true, allowData: !!f.data });
+      }
+    } catch (e) {}
     for (let i = 0; i < rootCS.length; i++) { const p = rootCS[i]; if (p && p.startsWith('--')) names.add(p); }
     for (const n of [...names].slice(0, 900)) {
       const v = rootCS.getPropertyValue(n).trim(); if (!v) continue;
@@ -591,7 +663,8 @@ export function extractPage(opts) {
       else if (/^\d+(\.\d+)?(deg)?\s+\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(v)) hex = toHex('hsl(' + v + ')');
       cssVars[n] = hex ? { v: v.slice(0, 120), hex } : { v: v.slice(0, 200) };
     }
-    try { document.fonts.forEach((f) => { if (f.status === 'loaded') loadedFonts.push({ family: f.family.replace(/["']/g, ''), weight: f.weight, style: f.style }); }); } catch (e) {}
+    try { document.fonts.forEach((f) => { if (f.status === 'loaded') loadedFonts.push({ family: f.family.replace(/["']/g, ''), weight: f.weight, style: f.style, unicodeRange: f.unicodeRange && f.unicodeRange !== 'U+0-10FFFF' ? f.unicodeRange.slice(0, 2000) : '' }); }); } catch (e) {}
+    try { const set = new Set(); for (const ch of (document.body.innerText || '').slice(0, 300000)) { set.add(ch); if (set.size >= 4000) break; } usedChars = [...set].join(''); } catch (e) {}
     const has = (sel) => { try { return !!document.querySelector(sel); } catch (e) { return false; } };
     const scripts = [...document.scripts].map((s) => s.src).filter(Boolean);
     const allSrc = scripts.join(' ') + ' ' + sheets.join(' ');
@@ -648,6 +721,40 @@ export function extractPage(opts) {
   const q = (id) => document.querySelector('[data-sb-id="' + id + '"]');
   const pick = (e) => { const c = getComputedStyle(e); return { color: toHex(c.color), bg: toHex(c.backgroundColor), bgi: c.backgroundImage === 'none' ? '' : colorsIn(c.backgroundImage).slice(0, 300), border: toHex(c.borderTopColor), shadow: c.boxShadow === 'none' ? '' : colorsIn(c.boxShadow), opacity: c.opacity, transform: c.transform === 'none' ? '' : c.transform, decoration: c.textDecorationLine, filter: c.filter === 'none' ? '' : c.filter, scale: c.scale && c.scale !== 'none' ? c.scale : '', translate: c.translate && c.translate !== 'none' ? c.translate : '' }; };
   const vis = (e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+
+  // ---------- tab-like groups: role="tab" lists + rows of buttons where one is styled as active ----------
+  (function tabGroups() {
+    const byHost = new Map();
+    for (const it of interactive) {
+      if (it.kind !== 'button' && it.kind !== 'tab') continue;
+      const el = q(it.id); if (!el || !el.parentElement) continue;
+      const pe = el.parentElement;
+      const host = it.kind === 'tab' ? el.closest('[role="tablist"]') || pe : pe.childElementCount === 1 && pe.parentElement ? pe.parentElement : pe;
+      if (!byHost.has(host)) byHost.set(host, []);
+      byHost.get(host).push({ it, el });
+    }
+    const ACTIVE = /(^|[\s_-])(active|selected|current|is-active|is-selected|on)($|[\s_-])/i;
+    const stateOn = (e) => e.getAttribute('aria-pressed') === 'true' || e.getAttribute('aria-selected') === 'true' || (e.hasAttribute('aria-current') && e.getAttribute('aria-current') !== 'false') || /^(active|on|open|checked)$/.test(e.getAttribute('data-state') || '') || e.hasAttribute('data-active') || ACTIVE.test(e.getAttribute('class') || '');
+    let gid = 0;
+    for (const [host, list] of byHost) {
+      if (list.length < 2 || list.length > 16) continue;
+      if (list.every((x) => x.it.kind === 'tab')) {
+        gid++;
+        list.forEach((x) => { x.it.group = 'g' + gid; x.it.active = x.el.getAttribute('aria-selected') === 'true' || stateOn(x.el); });
+        continue;
+      }
+      if (list.length < 3 || list.some((x) => x.it.kind !== 'button' || !x.it.text || x.it.text.length > 40 || x.it.tag !== list[0].it.tag) || host.closest('form')) continue;
+      const key = (e) => { const c = getComputedStyle(e); return [c.color, c.backgroundColor, c.fontWeight, c.borderTopColor, c.boxShadow, c.textDecorationLine].join('|'); };
+      const keys = list.map((x) => key(x.el));
+      const cnt = new Map(); keys.forEach((k) => cnt.set(k, (cnt.get(k) || 0) + 1));
+      let act = list.findIndex((x) => stateOn(x.el));
+      if (act < 0 && cnt.size === 2) { const u = keys.findIndex((k) => cnt.get(k) === 1); if (u >= 0 && cnt.get(keys[(u + 1) % keys.length]) === list.length - 1) act = u; }
+      if (act < 0) continue;
+      gid++;
+      list.forEach((x, i) => { x.it.kind = 'tab'; x.it.group = 'g' + gid; x.it.active = i === act; x.it.heur = 1; });
+    }
+  })();
+  let ovSeq = 0;
   window.__sb = {
     hoverState(id) { const el = q(id); if (!el) return null; const kids = [...el.querySelectorAll('svg, img, span, i')].slice(0, 3); const host = el.closest('li') || el.parentElement; return { self: pick(el), kids: kids.map(pick), hostText: host ? (host.innerText || '').trim().slice(0, 3000) : '' }; },
     openDetails() { const out = []; document.querySelectorAll('details').forEach((d) => { const sm = d.querySelector('summary'); d.open = true; const qq = sm ? (sm.innerText || '').trim() : ''; let aa = (d.innerText || '').trim(); if (aa.startsWith(qq)) aa = aa.slice(qq.length).trim(); if (qq || aa) out.push({ q: qq.slice(0, 300), a: aa.slice(0, 3000) }); }); return out; },
@@ -668,6 +775,78 @@ export function extractPage(opts) {
       let id = best.el.getAttribute('data-sb-id'); if (!id) { id = 'burger'; best.el.setAttribute('data-sb-id', id); }
       return id;
     },
+    // visible text of the main area — used to diff what a tab / filter click changes
+    region(ids) {
+      const root = document.querySelector('main') || document.body;
+      const lines = new Set(); const heads = [];
+      for (const l of (root.innerText || '').split('\n')) { const t = l.trim(); if (t) lines.add(t); if (lines.size > 5000) break; }
+      for (const id of ids || []) { const e = q(id); if (e) for (const l of (e.innerText || '').split('\n')) lines.delete(l.trim()); }
+      for (const h of root.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')) {
+        if (heads.length >= 400) break; if (!vis(h)) continue;
+        const t = (h.innerText || '').trim().replace(/\s+/g, ' '); if (t) heads.push(t.slice(0, 120));
+      }
+      return { lines: [...lines], heads };
+    },
+    // visible overlays (dialogs, drawers, popups) — diffed before/after a click
+    overlays() {
+      const out = []; const W = innerWidth, H = innerHeight;
+      const cands = new Set(document.querySelectorAll('[role="dialog"],[role="alertdialog"],[aria-modal="true"],dialog[open]'));
+      let n = 0;
+      for (const el of document.body.querySelectorAll('*')) { if (++n > 12000) break; const c = getComputedStyle(el); if (c.position === 'fixed' || (c.position === 'absolute' && (parseInt(c.zIndex, 10) || 0) >= 20)) cands.add(el); }
+      for (const el of cands) {
+        const c = getComputedStyle(el); if (c.display === 'none' || c.visibility === 'hidden' || parseFloat(c.opacity) < 0.05) continue;
+        const r = el.getBoundingClientRect(); if (r.width < 120 || r.height < 60 || r.bottom <= 0 || r.top >= H || r.right <= 0 || r.left >= W) continue;
+        let id = el.getAttribute('data-sb-ov'); if (!id) { id = 'ov' + (++ovSeq); el.setAttribute('data-sb-ov', id); }
+        let panel = null;
+        for (const d of el.querySelectorAll('*')) {
+          const dc = getComputedStyle(d); const bg = toHex(dc.backgroundColor); if (isClear(bg)) continue;
+          const dr = d.getBoundingClientRect(); if (dr.width < 100 || dr.height < 60 || dr.width * dr.height > r.width * r.height * 0.9) continue;
+          panel = { rect: [Math.round(dr.left), Math.round(dr.top), Math.round(dr.width), Math.round(dr.height)], bg, radius: dc.borderTopLeftRadius, shadow: dc.boxShadow !== 'none' }; break;
+        }
+        const hd = el.querySelector('h1,h2,h3,h4,[role="heading"]');
+        out.push({
+          id, role: el.getAttribute('role') || (el.tagName === 'DIALOG' ? 'dialog' : ''), modal: el.getAttribute('aria-modal') === 'true' || el.tagName === 'DIALOG',
+          label: (el.getAttribute('aria-label') || (hd ? hd.innerText : '') || '').trim().slice(0, 120), text: (el.innerText || '').trim().slice(0, 3000),
+          rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], bg: toHex(c.backgroundColor), radius: c.borderTopLeftRadius, shadow: c.boxShadow !== 'none',
+          pos: c.position, z: c.zIndex, blur: c.backdropFilter && c.backdropFilter !== 'none' ? c.backdropFilter : '', panel,
+        });
+      }
+      const elOf = (o) => document.querySelector('[data-sb-ov="' + o.id + '"]');
+      return out.filter((o) => !out.some((p) => p !== o && elOf(p) && elOf(o) && elOf(p).contains(elOf(o))));
+    },
+    // links visible in the viewport ("href|text") — diffed before/after the burger click
+    visibleLinks() {
+      const out = [];
+      for (const a of document.querySelectorAll('a[href]')) {
+        const r = a.getBoundingClientRect(); if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight) continue;
+        if (getComputedStyle(a).visibility === 'hidden') continue;
+        out.push(a.href + '|' + (a.innerText || '').trim().replace(/\s+/g, ' '));
+        if (out.length > 800) break;
+      }
+      return out;
+    },
+    // links of the opened mobile menu + its colours (for <MobileMenu links bg fg>)
+    menuLinks(before) {
+      const was = new Set(before || []); const out = []; const seen = new Set(); let style = null;
+      const roots = [...document.querySelectorAll('[aria-modal="true"], [role="dialog"], nav, [class*="menu" i], [class*="drawer" i], [class*="offcanvas" i], [class*="mobile" i]')].filter((el) => {
+        const r = el.getBoundingClientRect(); if (r.width < 100 || r.height < 100 || r.bottom < 0 || r.top > innerHeight) return false;
+        const c = getComputedStyle(el); return c.display !== 'none' && c.visibility !== 'hidden' && c.opacity !== '0';
+      });
+      for (const root of roots) {
+        for (const a of root.querySelectorAll('a[href]')) {
+          const r = a.getBoundingClientRect(); if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight) continue;
+          if (getComputedStyle(a).visibility === 'hidden') continue;
+          const text = (a.innerText || a.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
+          const key = a.href + '|' + text;
+          if (!text || seen.has(key) || was.has(key)) continue;
+          seen.add(key); out.push({ href: a.href, text: text.slice(0, 120) });
+          if (!style) for (let x = root, d = 0; x && x !== document.documentElement && d < 6; x = x.parentElement, d++) { const bg = toHex(getComputedStyle(x).backgroundColor); if (!isClear(bg)) { style = { bg, color: toHex(getComputedStyle(a).color) }; break; } }
+          if (out.length >= 40) break;
+        }
+        if (out.length >= 40) break;
+      }
+      return { links: out, style };
+    },
     menuText() {
       const seen = []; const parts = [];
       for (const el of document.querySelectorAll('[aria-modal="true"], [role="dialog"], nav, [class*="menu" i], [class*="drawer" i], [class*="offcanvas" i], [class*="mobile" i]')) {
@@ -682,7 +861,7 @@ export function extractPage(opts) {
 
   return {
     url: location.href, viewport: { w: VW, h: VH }, docHeight: DOC_H, rootFontSize: parseFloat(rootCS.fontSize) || 16, pageBg, meta, tech,
-    cssVars, fontFaces, keyframes, mediaQueries: [...new Set(mediaQueries)].slice(0, 200), loadedFonts, sheets,
+    cssVars, fontFaces, keyframes, mediaQueries: [...new Set(mediaQueries)].slice(0, 200), loadedFonts, sheets, usedChars,
     tree, svgs, images, bgImages, media, interactive, links, forms, html,
     stats: { nodes: count, truncated, ms: Date.now() - t0, rules: ruleStats },
   };

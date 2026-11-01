@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>site-blueprint</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="top">
+    <img src="icons/icon32.png" width="22" height="22" alt="">
+    <div class="brand"><b>site-blueprint</b> <span id="ver" class="muted"></span></div>
+    <span id="cli" class="cli" title="Локальный CLI: site-blueprint listen">CLI: …</span>
+  </header>
+
+  <section class="page" id="page">
+    <div class="host" id="host">—</div>
+    <div class="title muted" id="title"></div>
+  </section>
+
+  <section class="actions">
+    <button id="btn-page" class="primary">Клонировать страницу</button>
+    <button id="btn-site" class="secondary">Клонировать сайт (с краулингом ссылок)</button>
+  </section>
+
+  <section class="opts">
+    <label class="check"><input type="checkbox" id="opt-api" checked> <span>Захватить API-запросы</span></label>
+    <label class="check"><input type="checkbox" id="opt-state" checked> <span>Захватить интерактивный стейт</span></label>
+    <div class="radio">
+      <label><input type="radio" name="delivery" value="zip" checked> <span>Скачать ZIP</span></label>
+      <label><input type="radio" name="delivery" value="cli"> <span id="cli-label">Отправить в локальный CLI (localhost:3005)</span></label>
+    </div>
+    <div class="row site-only">
+      <label>Макс. страниц <input type="number" id="opt-max" min="1" max="200" value="10"></label>
+      <label>Глубина <input type="number" id="opt-depth" min="1" max="5" value="2"></label>
+    </div>
+    <label class="check site-only"><input type="checkbox" id="opt-robots" checked> <span>Учитывать robots.txt</span></label>
+  </section>
+
+  <section class="status hidden" id="status">
+    <div class="stage" id="stage">—</div>
+    <div class="bar"><div id="bar"></div></div>
+    <ul class="log" id="log"></ul>
+    <div class="result hidden" id="result"></div>
+    <div class="warn hidden" id="warn"></div>
+    <button id="btn-cancel" class="ghost hidden">Отменить</button>
+  </section>
+
+  <details class="settings">
+    <summary>Настройки</summary>
+    <label>Порт CLI <input type="number" id="set-port" min="1" max="65535" value="3005"></label>
+    <label>Токен CLI <input type="password" id="set-token" placeholder="если запущен с --token" autocomplete="off"></label>
+    <label class="check"><input type="checkbox" id="set-cdn"> <span>Ассеты с CDN (запросит доступ ко всем сайтам)</span></label>
+    <button id="btn-revoke" class="ghost">Отозвать доступ к сайтам</button>
+    <p class="muted small">Без доступа к сайту захват идёт через activeTab: только эта вкладка и только по клику. API без перезагрузки: ответы, пойманные во время захвата, и повтор GET-запросов из Resource Timing.</p>
+  </details>
+
+  <footer class="muted small">Клонируй только свои сайты или с разрешения владельца. Токены, cookies, e-mail и телефоны вырезаются из захвата. Защиты от ботов не обходятся.</footer>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

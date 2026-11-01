@@ -1,5 +1,6 @@
 // Stage 2: deterministic site model — tokens, icons, routes, React components (TSX), section facts, hidden content.
 import path from 'node:path';
+import { CssVarRegistry } from './cssvars.mjs';
 import fsp from 'node:fs/promises';
 import { readJSON, exists, sha, pascal, normalizeUrl, sameSite, truncate, fmtTransition, colorsToHex } from '../util.mjs';
 import { analyzeSections } from './page.mjs';
@@ -9,6 +10,7 @@ import { createTw } from './tailwind.mjs';
 import { createSkeleton } from './skeleton.mjs';
 import { computeEffective, indexTree, pathMap, textOf, walkTree, kids } from './tree.mjs';
 import { svgToJsx, guessIconName } from './svg.mjs';
+import { cartProps, enhanceSection, isCartDialog, menuLinks } from '../output/interactive.mjs';
 
 export const GLOBAL_TYPES = new Set(['header', 'footer', 'banner']);
 export const TYPE_RU = { article: 'статья', header: 'шапка', banner: 'анонс-бар', footer: 'подвал', hero: 'первый экран (hero)', faq: 'FAQ', pricing: 'тарифы', testimonials: 'отзывы', form: 'форма', newsletter: 'подписка', stats: 'цифры', logos: 'логотипы', gallery: 'галерея', tabs: 'табы', blog: 'статьи', team: 'команда', features: 'карточки/преимущества', cta: 'призыв к действию', content: 'контент' };
@@ -56,7 +58,7 @@ function buildIcons(P) {
       if (!/(Icon|Logo)$/.test(base)) base += svg.logo ? 'Logo' : 'Icon';
       let name = base, i = 2; while (names.has(name)) name = base + i++;
       names.add(name);
-      rec = { name, file: `svg/${name}.svg`, markup: svg.markup, w: svg.w, h: svg.h, logo: !!svg.logo, color: svg.color, count: 0, pages: new Set(), where: new Set(), label: svg.label || '' };
+      rec = { name, file: `svg/inline/${name}.svg`, markup: svg.markup, w: svg.w, h: svg.h, logo: !!svg.logo, color: svg.color, count: 0, pages: new Set(), where: new Set(), label: svg.label || '' };
       byKey.set(key, rec); list.push(rec);
     }
     if (mobile) rec.mobile = (rec.mobile || 0) + 1; else rec.count += svg.count || 1; // desktop occurrences only
@@ -92,7 +94,8 @@ export function buildSite(data, opts = {}) {
   const tokens = buildTokens(P.map((p) => ({ raw: p.raw, eff: p.eff, sections: p.sections })), cssInfo);
   const home = P[0];
   const bp = mainBreakpoint(tokens, home.raw.viewport.w, home.mob ? home.mob.raw.viewport.w : 390);
-  const tw = createTw(tokens, { vh: home.raw.viewport.h });
+  const cssVars = new CssVarRegistry('sb');
+  const tw = createTw(tokens, { vh: home.raw.viewport.h, vars: cssVars });
   const icons = buildIcons(P);
   const routes = buildRoutes(P);
   const assetsBy = new Map(((crawl.assets && crawl.assets.saved) || []).map((a) => [a.url, a.web]));
@@ -122,14 +125,26 @@ export function buildSite(data, opts = {}) {
   // hover results are keyed by element signature; shared elements are probed once per crawl, so merge all pages
   const hoverAll = new Map();
   for (const p of P) for (const h of (p.rec.probes && p.rec.probes.hover) || []) if (!hoverAll.has(h.sig)) hoverAll.set(h.sig, h);
+  // site-wide cart: the first probed overlay that looks like a cart drawer -> <CartProvider> config (app/layout.tsx)
+  let cart = null;
+  for (const p of P) for (const d of (p.rec.probes && p.rec.probes.dialogs) || []) if (!cart && isCartDialog(d)) cart = cartProps(d, { w: p.raw.viewport.w, h: p.raw.viewport.h });
+  const opaqueHex = (h) => (h && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(h) && !/^#[0-9a-f]{6}00$/i.test(h) ? h : null);
   for (const p of P) {
     const raw = p.raw;
     const sigById = new Map((raw.interactive || []).map((x) => [x.id, x.sig]));
     const hoverBySig = new Map([...hoverAll, ...((p.rec.probes && p.rec.probes.hover) || []).map((h) => [h.sig, h])]);
     const detailsMap = new Map(((p.rec.probes && p.rec.probes.details) || []).map((x) => [norm(x.q), x.a]));
     const expandMap = new Map(((p.rec.probes && p.rec.probes.expand) || []).map((x) => [x.id, x]));
+    const dialogMap = new Map(((p.rec.probes && p.rec.probes.dialogs) || []).filter((d) => d && d.triggerId != null && (d.overlays || []).length).map((d) => [String(d.triggerId), d]));
+    const burger = p.rec.mobile && p.rec.mobile.burger && p.rec.mobile.burger.id ? p.rec.mobile.burger : null;
+    let menu = null;
+    if (burger) {
+      const links = menuLinks(burger, raw.links, linkFor);
+      const bst = burger.style || {};
+      if (links.length) menu = { links, bg: opaqueHex(bst.bg) || tokens.roles.background || '#ffffff', fg: opaqueHex(bst.color) || tokens.roles.foreground || '#111111' };
+    }
     const ctx = {
-      tw, bp, vw: raw.viewport.w, E: p.eff, P: p.parent, bodyEff: p.eff.get(raw.tree.i) || {}, mob: p.mob, maxChars: opts.maxSectionChars || 40000,
+      tw, bp, vw: raw.viewport.w, vp: { w: raw.viewport.w, h: raw.viewport.h }, E: p.eff, P: p.parent, bodyEff: p.eff.get(raw.tree.i) || {}, mob: p.mob, maxChars: opts.maxSectionChars || 40000,
       current: null,
       iconFor: (N, isMob) => { const rec = N.svg >= 0 ? (isMob ? p.mobSvgRecs : p.svgRecs)[N.svg] : null; if (!rec) return { big: true }; if (ctx.current) rec.where.add(ctx.current); return { name: rec.name }; },
       imgFor: (N, isMob) => { const im = (isMob ? p.mob.raw.images : raw.images)[N.img]; if (!im) return null; return { src: im.local || assetsBy.get(im.src) || im.src, alt: im.alt, lazy: im.lazy }; },
@@ -157,7 +172,7 @@ export function buildSite(data, opts = {}) {
         if (d.bgi && String(d.bgi[1] || '').length > 400) delete d.bgi;
         return Object.keys(d).length ? tw.hoverCls(d) : '';
       },
-      hidden: { details: { get: (q) => detailsMap.get(norm(q)) }, expand: expandMap, dropdowns: (p.rec.probes && p.rec.probes.dropdowns) || [], burger: p.rec.mobile && p.rec.mobile.burger && p.rec.mobile.burger.id ? p.rec.mobile.burger : null },
+      hidden: { details: { get: (q) => detailsMap.get(norm(q)) }, expand: expandMap, dropdowns: (p.rec.probes && p.rec.probes.dropdowns) || [], burger, menu, dialogs: dialogMap, cart: !!cart },
     };
     const sk = createSkeleton(ctx);
     p.blocks = [];
@@ -170,11 +185,14 @@ export function buildSite(data, opts = {}) {
       ctx.current = name;
       const r = sk.renderSection({ node: s.node, type: s.type, repeats: s.repeats, name });
       ctx.current = null;
+      // tabs / catalog filters / add-to-cart in data templates -> working client state
+      const enh = enhanceSection(sk.sectionFile(r), r, { tabGroups: (p.rec.probes && p.rec.probes.tabGroups) || [], lang: opts.lang || 'ru', catalogTools: opts.catalogTools !== false, cart: !!cart });
+      r.features = enh.features; r.isClient = enh.client; r.client = [...new Set([...(r.client || []), ...enh.uses])].sort();
       const comp = {
         name, type: s.type, global: isGlobal, position: isGlobal ? (firstContent < 0 || s.index < firstContent ? 'top' : 'bottom') : null,
         page: p.slug, route: p.route, index: s.index, heading: s.heading,
         file: `${isGlobal ? 'components/layout' : 'components/sections'}/${name}.tsx`,
-        code: sk.sectionFile(r), render: r, usedOn: new Set([p.slug]),
+        code: enh.code, render: r, usedOn: new Set([p.slug]), client: enh.client,
         facts: describeSection(s, p, tw, r),
         shot: ((p.rec.shots && p.rec.shots.sections) || []).find((x) => x.index === s.index)?.file || null,
       };
@@ -184,7 +202,8 @@ export function buildSite(data, opts = {}) {
   }
   const keyframesUsed = new Set();
   for (const c of components) for (const m of c.code.matchAll(/animate-\[([A-Za-z0-9_-]+?)_/g)) keyframesUsed.add(m[1]);
-  return { origin, crawl, pages: P, home, tokens, bp, tw, icons, routes, components, globals, cssInfo, keyframesUsed, linkFor };
+  const usesCart = components.some((c) => /<(CartButton|AddToCart)\b/.test(c.code));
+  return { origin, crawl, pages: P, home, tokens, bp, tw, icons, routes, components, globals, cssInfo, keyframesUsed, linkFor, cssVars, cart: usesCart ? cart || {} : null };
 }
 
 // ---- deterministic facts about a section (for the blueprint & the LLM) ----
@@ -225,6 +244,8 @@ function describeSection(s, p, tw, r) {
   const media = [ft.imgs ? `${ft.imgs} изобр.` : '', ft.svgs ? `${ft.svgs} SVG` : '', ft.inputs ? `${ft.inputs} полей формы` : ''].filter(Boolean);
   if (media.length) f.push('Содержит: ' + media.join(', '));
   if (r.interactive.length) f.push('Интерактив: ' + r.interactive.join(', '));
+  const ready = [...(r.features || []), ...(r.client || []).map((c) => `<${c}>`)];
+  if (ready.length) f.push('Уже работает в сгенерированном коде: ' + ready.join('; '));
   if (!r.responsive && p.mob) f.push(r.notes.join(' '));
   return f;
 }

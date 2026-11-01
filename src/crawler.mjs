@@ -4,14 +4,17 @@ import path from 'node:path';
 import { launchBrowser, newContext } from './browser.mjs';
 import { extractPage } from './inpage/extract.mjs';
 import { analyzeSections } from './analyze/page.mjs';
-import { fontUrlsFromFaces } from './analyze/css.mjs';
 import { AssetStore } from './crawl/assets.mjs';
+import { saveRawAssets } from './crawl/saveassets.mjs';
+import { createHooks } from './core/hooks.mjs';
+import { ApiSniffer } from './capture/network.mjs';
+import { SnapshotStore } from './capture/snapshot.mjs';
+import { trackerOf, scanText, mergeTrackers } from './sanitize/trackers.mjs';
 import { loadRobots, sitemapUrls } from './crawl/robots.mjs';
 import * as ops from './crawl/pageops.mjs';
 import { parseSize } from './config.mjs';
 import { log, color } from './log.mjs';
 import { normalizeUrl, isHtmlLike, sameSite, pageSlug, templateKey, sleep, writeJSON, writeText, kebab, humanBytes } from './util.mjs';
-import { walkTree } from './analyze/tree.mjs';
 
 const SKIP_RE = /\/(logout|log-out|signout|sign-out|wp-admin|wp-login\.php|cart|checkout|basket|my-account|cdn-cgi|wp-json|xmlrpc\.php)(\/|$)|[?&](replytocom|share|add-to-cart|action|print)=/i;
 const withTimeout = (p, ms, what) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`${what}: таймаут ${ms / 1000}s`)), ms); })]).finally(() => clearTimeout(t)); };
@@ -25,6 +28,14 @@ export async function crawl(startUrl, opts, outDir) {
   const start = normalizeUrl(startUrl);
   if (!start) throw new Error('Некорректный URL: ' + startUrl);
   const origin = new URL(start).origin;
+  // plugins (website-scraper-style actions) + built-in API sniffer
+  const sniffer = opts.api !== false ? new ApiSniffer({ outDir, origin, redact: opts.redact !== false, maxMocks: opts.maxMocks || 250 }) : null;
+  const hooks = opts.hooks || (await createHooks(opts));
+  if (sniffer) hooks.use(sniffer.plugin());
+  await hooks.emit('beforeStart', { startUrl: start, opts, outDir });
+  const blocked = new Map(); // trackers blocked at network level: id → { name, count }
+  const onBlocked = (u) => { const t = trackerOf(u); const k = t ? t.id : 'consent'; const cur = blocked.get(k) || { id: k, name: t ? t.name : 'Cookie-consent SDK', count: 0 }; cur.count++; blocked.set(k, cur); };
+  const pageTrackers = [];
 
   log.step('Запуск браузера');
   const browser = await launchBrowser(opts);
@@ -34,19 +45,30 @@ export async function crawl(startUrl, opts, outDir) {
   const sheets = ops.createSheetMaker(sheetCtx);
   const workerCtx = [];
   const ctxFor = async (i) => {
-    if (!workerCtx[i]) workerCtx[i] = { d: await newContext(browser, { ...desk, locale: opts.locale }), m: opts.mobile ? await newContext(browser, { ...mobV, mobile: true, locale: opts.locale }) : null };
+    if (!workerCtx[i]) workerCtx[i] = { d: await newContext(browser, { ...desk, locale: opts.locale, hooks, onBlocked, blockTrackers: opts.blockTrackers !== false }), m: opts.mobile ? await newContext(browser, { ...mobV, mobile: true, locale: opts.locale, hooks, onBlocked, blockTrackers: opts.blockTrackers !== false }) : null };
     return workerCtx[i];
   };
   const ctxD = (await ctxFor(0)).d;
-  const assets = new AssetStore(outDir, opts, ctxD.request);
+  // downloads go through Node (retries, resume, throttling) with the browser's own UA and cookies of the URL
+  let ua = '';
+  try { const p = await ctxD.newPage(); ua = await p.evaluate(() => navigator.userAgent).catch(() => ''); await p.close(); } catch {}
+  const assets = new AssetStore(outDir, opts, ctxD.request, {
+    hooks,
+    headers: { ...(ua ? { 'User-Agent': ua } : {}), Referer: origin + '/', ...(opts.locale ? { 'Accept-Language': opts.locale } : {}) },
+    cookiesFor: async (u) => (await ctxD.cookies(u)).map((c) => `${c.name}=${c.value}`).join('; '),
+  });
   const css = new Map();
   const fonts = new Map();
+  // SingleFile-style offline snapshots of every page (desktop state right after extraction)
+  const snaps = opts.snapshot !== false ? new SnapshotStore(outDir, { assets: opts.assets === false ? null : assets }) : null;
   const shotDir = path.join(outDir, 'screenshots');
 
   // ---------- robots / sitemap ----------
   let robots = null;
+  const robotsInfo = await loadRobots(ctxD.request, origin);
+  if (robotsInfo.aiBlocked && robotsInfo.aiBlocked.length) log.warn(`robots.txt закрывает сайт для ИИ-ботов (${robotsInfo.aiBlocked.slice(0, 6).join(', ')}${robotsInfo.aiBlocked.length > 6 ? '…' : ''}). Владелец против использования контента нейросетями — клонируй только с его согласия.`);
   if (opts.robots) {
-    robots = await loadRobots(ctxD.request, origin);
+    robots = robotsInfo;
     log.info(`robots.txt: ${robots.status === 200 ? `${robots.rules} правил${robots.delay ? `, crawl-delay ${robots.delay}s` : ''}` : 'нет (' + robots.status + ')'}`);
     if (!robots.allowed(start)) { await browser.close(); throw new Error('robots.txt запрещает обход этой страницы. Если это твой сайт или у тебя есть права — запусти с --ignore-robots'); }
   } else log.warn('robots.txt игнорируется (--ignore-robots)');
@@ -55,6 +77,7 @@ export async function crawl(startUrl, opts, outDir) {
   const queue = []; const seen = new Set(); let order = 0;
   const skipped = [];
   const hoverSeen = new Set(); // hover signatures probed so far (shared across pages)
+  const dialogSeen = new Set(); // buttons already clicked by the overlay probe (header buttons repeat on every page)
   const enqueue = (u, depth, prio, from) => {
     const url = normalizeUrl(u);
     if (!url || seen.has(url)) return;
@@ -88,11 +111,14 @@ export async function crawl(startUrl, opts, outDir) {
     return null;
   };
 
-  function attachCapture(page) {
+  function attachCapture(page, ref) {
     const pending = [];
+    page.__sbRef = ref;
+    const emitResponses = hooks.has('afterResponse');
     page.on('response', (res) => {
       try {
         const rt = res.request().resourceType(); const url = res.url();
+        if (emitResponses) hooks.emit('afterResponse', { response: res, url, status: res.status(), resourceType: rt, page, slug: ref.slug });
         if (res.status() >= 300 || url.startsWith('data:')) return;
         if (rt === 'stylesheet') pending.push(res.text().then((t) => { if (!css.has(url) && t.length < 5e6) css.set(url, t); }).catch(() => {}));
         else if (rt === 'image' || rt === 'font') {
@@ -101,7 +127,7 @@ export async function crawl(startUrl, opts, outDir) {
         }
       } catch {}
     });
-    return { flush: () => withTimeout(Promise.allSettled(pending), 15000, 'network').catch(() => {}) };
+    return { flush: () => withTimeout(Promise.allSettled([...pending, sniffer ? sniffer.flush() : null]), 15000, 'network').catch(() => {}) };
   }
 
   // cross-origin stylesheets are unreadable from the page (CORS) — hand their captured text to the extractor
@@ -113,48 +139,41 @@ export async function crawl(startUrl, opts, outDir) {
     } catch {}
   }
 
-  async function saveAssets(raw) {
-    const jobs = [];
-    raw.images.forEach((im) => { if (im.src) jobs.push(assets.save(im.src, 'images', im.alt || (im.logo ? 'logo' : '')).then((w) => { if (w) im.local = w; })); });
-    raw.bgImages.forEach((b) => { if (b.src) jobs.push(assets.save(b.src, 'images', 'bg').then((w) => { if (w) b.local = w; })); });
-    (raw.media || []).forEach((m) => {
-      if (m.poster) jobs.push(assets.save(m.poster, 'images', 'poster').then((w) => { if (w) m.posterLocal = w; }));
-      if (m.type === 'video' && m.src && !m.src.startsWith('blob:')) jobs.push(assets.save(m.src, 'media', 'video').then((w) => { if (w) m.local = w; }));
-    });
-    (raw.meta.favicons || []).forEach((f) => { if (f.href) jobs.push(assets.save(f.href, 'icons', 'favicon').then((w) => { if (w) f.local = w; })); });
-    if (raw.meta.ogImage) jobs.push(assets.save(raw.meta.ogImage, 'images', 'og-image').then((w) => { if (w) raw.meta.ogImageLocal = w; }));
-    const used = new Set((raw.loadedFonts || []).map((f) => f.family.toLowerCase()));
-    const byFace = new Map();
-    for (const f of fontUrlsFromFaces(raw.fontFaces || [])) {
-      if (used.size && !used.has(f.family.toLowerCase())) continue;
-      const k = `${f.family}|${f.weight}|${f.style}`; if (byFace.has(k)) continue; byFace.set(k, f);
-    }
-    for (const f of byFace.values()) {
-      const key = `${f.family}|${f.weight}|${f.style}`; if (fonts.has(key)) continue;
-      fonts.set(key, { ...f, web: null });
-      jobs.push(assets.save(f.url, 'fonts', `${f.family}-${String(f.weight).replace(/\s+/g, '_')}-${f.style}`).then((w) => { fonts.get(key).web = w; }));
-    }
-    await withTimeout(Promise.allSettled(jobs), 180000, 'assets').catch((e) => log.warn(errMsg(e)));
-    // rewrite url(...) in computed backgrounds to local paths
-    const bgBy = new Map(); for (const b of raw.bgImages) if (b.local) bgBy.set(b.src.slice(0, 300), b.local);
-    const swap = (v) => v.replace(/url\(["']?(.*?)["']?\)/g, (m, u) => { const w = assets.webPath(u) || bgBy.get(u.slice(0, 300)); if (w) return `url(${w})`; return u.startsWith('data:') ? 'url(/images/inline-image-missing.png)' : m; });
-    walkTree(raw.tree, (n) => {
-      if (n.s && n.s['background-image'] && n.s['background-image'].includes('url(')) n.s['background-image'] = swap(n.s['background-image']);
-      for (const ps of [n.pb, n.pa]) if (ps && ps.bgi && ps.bgi.includes('url(')) ps.bgi = swap(ps.bgi);
-    });
+  // trackers referenced by the page (inline snippets with counter ids + script/iframe URLs) — reported, never cloned
+  async function detectTrackers(page) {
+    try {
+      const { srcs, inline } = await page.evaluate(() => {
+        const sc = [...document.scripts];
+        return {
+          srcs: sc.map((x) => x.src).filter(Boolean).concat([...document.querySelectorAll('iframe[src], img[src][width="1"], img[src][height="1"]')].map((f) => f.src)).slice(0, 400),
+          inline: (sc.filter((x) => !x.src).map((x) => x.textContent.slice(0, 30000)).join('\n') + '\n' + [...document.querySelectorAll('noscript')].map((n) => n.textContent).join('\n')).slice(0, 600000),
+        };
+      });
+      const items = scanText(inline);
+      for (const x of scanText(srcs.join('\n'))) { const cur = items.find((y) => y.id === x.id); if (cur) cur.ids = [...new Set([...cur.ids, ...x.ids])]; else items.push(x); }
+      const have = new Set(items.map((x) => x.id));
+      for (const u of srcs) { const t = trackerOf(u); if (t && !have.has(t.id)) { have.add(t.id); items.push({ id: t.id, name: t.name, ids: [], widget: !!t.widget }); } }
+      return items;
+    } catch { return []; }
   }
 
   async function processMobile(ctxM, url, slug, first) {
     const page = await ctxM.newPage();
+    page.__sbRef = { slug, url, view: 'mobile' };
+    if (hooks.has('afterResponse')) page.on('response', (res) => { try { hooks.emit('afterResponse', { response: res, url: res.url(), status: res.status(), resourceType: res.request().resourceType(), page, slug }); } catch {} });
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: opts.timeout });
       await ops.settle(page, 6000);
       if (opts.cookies && (await ops.dismissCookies(page))) await sleep(400);
+      await ops.forceLazy(page);
       await ops.autoScroll(page);
-      await ops.waitAssets(page, 3000);
+      await ops.waitAssets(page, 8000);
+      await ops.finishAnimations(page);
       await provideCss(page);
+      await hooks.emit('beforeExtract', { page, url, slug, view: 'mobile' });
       const raw = await withTimeout(page.evaluate(extractPage, { maxNodes: opts.maxNodes, html: false }), 90000, 'mobile extract');
       if (!raw || !raw.tree) return null;
+      await hooks.emit('afterExtract', { page, raw, url, slug, view: 'mobile' });
       for (const k of ['html', 'cssVars', 'fontFaces', 'keyframes', 'mediaQueries', 'loadedFonts', 'sheets', 'links', 'forms']) delete raw[k];
       const full = await ops.fullScreenshot(page, path.join(shotDir, 'mobile', slug + '.png'), raw.docHeight);
       const llm = full ? await sheets.make(full.file, path.join(shotDir, 'llm', slug + '-mobile'), { width: 520, maxH: 2000, max: 2, dpr: 2 }) : [];
@@ -162,12 +181,16 @@ export async function crawl(startUrl, opts, outDir) {
       if (first && opts.interactions) { burger = await ops.probeBurger(page, path.join(shotDir, 'mobile', slug + '-menu.png')); if (burger) burger.screenshot = rel(burger.screenshot); }
       return { raw, finalUrl: page.url(), screenshot: full ? rel(full.file) : null, llm: llm.map((s) => ({ ...s, file: rel(s.file) })), burger };
     } catch (e) { log.warn(`Мобильная версия ${url}: ${errMsg(e)}`); return null; }
-    finally { await page.close().catch(() => {}); }
+    finally {
+      if (sniffer) await withTimeout(sniffer.flush(), 10000, 'api').catch(() => {});
+      await page.close().catch(() => {});
+    }
   }
 
   async function processPage(it, c) {
     const page = await c.d.newPage();
-    const cap = attachCapture(page);
+    const ref = { slug: null, url: it.url, view: 'desktop' };
+    const cap = attachCapture(page, ref);
     const t1 = Date.now(); let tm = t1;
     const mark = (what) => { const n = Date.now(); log.debug(`${what}: ${n - tm}ms`); tm = n; };
     try {
@@ -188,19 +211,35 @@ export async function crawl(startUrl, opts, outDir) {
       if (it.depth > 0 && !sameSite(finalUrl, start, opts.subdomains)) { skipped.push({ url: it.url, reason: 'редирект на другой сайт' }); return null; }
       finals.add(finalUrl);
       let slug = pageSlug(finalUrl); { const b = slug; let i = 2; while (slugs.has(slug)) slug = `${b}-${i++}`; } slugs.add(slug);
+      ref.slug = slug;
       if (opts.cookies) { const c = await ops.dismissCookies(page); if (c) { log.debug('cookie banner:', c); await sleep(500); } }
+      await ops.forceLazy(page);
       await ops.autoScroll(page); mark('scroll');
       await ops.waitAssets(page); mark('assets-wait');
+      await ops.finishAnimations(page);
       await provideCss(page);
+      await hooks.emit('beforeExtract', { page, url: finalUrl, slug, view: 'desktop' });
       const raw = await withTimeout(page.evaluate(extractPage, { maxNodes: opts.maxNodes, html: opts.html }), 90000, 'extract');
       mark('extract');
       if (!raw || raw.error || !raw.tree) { skipped.push({ url: it.url, reason: 'не удалось извлечь DOM: ' + ((raw && raw.error) || '?') }); return null; }
+      await hooks.emit('afterExtract', { page, raw, url: finalUrl, slug, view: 'desktop' });
+      pageTrackers.push({ page: slug, items: await detectTrackers(page) });
+      if (snaps) {
+        try { const it = await withTimeout(snaps.capture(page, slug), 60000, 'snapshot'); if (it) log.debug(`snapshot ${slug}: ${humanBytes(it.stats.bytes)}, shadow ${it.stats.shadowRoots} (closed ${it.stats.closedShadowRoots}), canvas ${it.stats.canvases}`); }
+        catch (e) { log.warn(`Снимок ${slug}: ${errMsg(e)}`); }
+        mark('snapshot');
+      }
       if (raw.stats.truncated) log.warn(`Страница большая: взято первые ${raw.stats.nodes} узлов (--max-nodes)`);
       const html = raw.html; delete raw.html;
       if (html) await writeText(path.join(outDir, 'dom', slug + '.html'), html);
       const { sections } = analyzeSections(raw);
       const full = await ops.fullScreenshot(page, path.join(shotDir, 'desktop', slug + '.png'), raw.docHeight); mark('screenshot');
       const secShots = await ops.sectionShots(page, sections, path.join(shotDir, 'sections', slug), slug); mark('section-shots');
+      if (opts.assets && (raw.media || []).some((m) => m.type === 'canvas')) {
+        const cv = await ops.snapshotCanvases(page, raw.media, (i) => path.join(outDir, 'project', 'public', 'images', `canvas-${slug}-${i + 1}.png`));
+        for (const c of cv) raw.media[c.index].snapshot = '/images/' + path.basename(c.file);
+        mark('canvas');
+      }
       const llmDesktop = full ? await sheets.make(full.file, path.join(shotDir, 'llm', slug + '-desktop'), { width: 1000, maxH: 1800, max: 4 }) : []; mark('llm-sheets');
       const probes = { hover: [], dropdowns: [], tabs: [], expand: [], details: [] };
       await page.bringToFront().catch(() => {});
@@ -210,9 +249,11 @@ export async function crawl(startUrl, opts, outDir) {
       }
       mark('hover');
       if (opts.interactions) Object.assign(probes, await ops.probeInteractions(page, raw.interactive || [])); mark('interactions');
+      if (opts.interactions) { probes.dialogs = (await ops.probeDialogs(page, raw.interactive || [], path.join(shotDir, 'interactions'), slug, { skip: dialogSeen })).map((d) => ({ ...d, screenshot: rel(d.screenshot) })); mark('dialogs'); }
       await cap.flush();
-      await saveAssets(raw); mark('save-assets');
+      await saveRawAssets(raw, assets, fonts); mark('save-assets');
       const mobile = c.m ? await processMobile(c.m, finalUrl, slug, pages.length === 0 || it.depth === 0) : null; mark('mobile');
+      if (mobile && mobile.raw && opts.assets !== false) { await saveRawAssets(mobile.raw, assets, fonts, { timeoutMs: 90000 }); mark('mobile-assets'); }
       const rec = {
         url: it.url, finalUrl, slug, depth: it.depth, from: it.from, status, title: raw.meta.title, crawledAt: new Date().toISOString(), ms: Date.now() - t1,
         sectionsFound: sections.map((s) => s.type),
@@ -248,6 +289,7 @@ export async function crawl(startUrl, opts, outDir) {
     }
   }
   log.step(`Обход сайта ${origin} (глубина ${opts.depth}, максимум ${opts.maxPages} стр.)`);
+  let snapList = null;
   try {
     // first page alone (it discovers the navigation), then parallel workers
     active++;
@@ -258,6 +300,13 @@ export async function crawl(startUrl, opts, outDir) {
     pages.push(rec);
     if (opts.depth > 0) for (const l of rec.links) enqueue(l.href, 1, l.prio, rec.slug);
     await Promise.all(Array.from({ length: Math.max(1, opts.concurrency) }, (_, i) => worker(i)));
+    // snapshots are finalized while the browser is still open (missing assets are fetched with its cookies)
+    if (snaps && snaps.items.length) {
+      try {
+        snapList = await withTimeout(snaps.finalize(pages), 240000, 'snapshots');
+        log.ok(`Автономные HTML-снимки: ${snapList.length} → snapshots/ (${humanBytes(snapList.reduce((a, x) => a + x.bytes, 0))})`);
+      } catch (e) { log.warn('Снимки страниц: ' + errMsg(e)); }
+    }
   } finally {
     await sheets.close();
     await browser.close().catch(() => {});
@@ -270,12 +319,19 @@ export async function crawl(startUrl, opts, outDir) {
     await writeText(file, text); cssIndex.push({ url, file: rel(file), bytes: text.length });
   }
   const manifest = assets.manifest();
+  const api = sniffer ? await sniffer.write() : null;
+  if (api && api.count) log.ok(`API: записано ${api.count} ответ(ов) XHR/fetch → data/api-mocks (редакция секретов: ${api.redaction.enabled ? api.redaction.replaced + ' замен' : 'выключена'})`);
+  const trackers = { found: mergeTrackers(pageTrackers), blocked: [...blocked.values()].sort((a, b) => b.count - a.count) };
+  if (trackers.found.length || trackers.blocked.length) log.info(`Трекеры/виджеты (не попадут в клон): ${[...new Set([...trackers.found.map((t) => t.name), ...trackers.blocked.map((t) => t.name)])].slice(0, 8).join(', ')}`);
   const summary = {
     start, origin, startedAt: new Date(t0).toISOString(), durationMs: Date.now() - t0,
     options: { depth: opts.depth, maxPages: opts.maxPages, perTemplate: opts.perTemplate, viewport: `${desk.width}x${desk.height}`, mobileViewport: opts.mobile ? `${mobV.width}x${mobV.height}` : null, robots: !!opts.robots },
-    robots: robots ? { status: robots.status, rules: robots.rules, delay: robots.delay, sitemaps: robots.sitemaps } : null, sitemapCount,
+    robots: robots ? { status: robots.status, rules: robots.rules, delay: robots.delay, sitemaps: robots.sitemaps, aiBlocked: robots.aiBlocked } : { ignored: true, aiBlocked: robotsInfo.aiBlocked }, sitemapCount,
     pages: pages.map(({ links, ...p }) => p), skipped: skipped.slice(0, 500), css: cssIndex,
     fonts: [...fonts.values()], assets: manifest,
+    api: api ? { count: api.count, skipped: api.skipped, redaction: api.redaction, index: api.count ? 'data/api-mocks/index.json' : null } : null,
+    trackers,
+    snapshots: snapList ? { count: snapList.length, dir: 'snapshots', items: snapList } : null,
   };
   await writeJSON(path.join(outDir, 'data', 'crawl.json'), summary);
   log.ok(`Обход завершён: ${pages.length} стр., ассетов ${manifest.saved.length} (${humanBytes(manifest.bytes)}), CSS ${cssIndex.length}, пропущено ${skipped.length} — ${((Date.now() - t0) / 1000).toFixed(0)}s`);

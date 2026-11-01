@@ -1,5 +1,7 @@
 // Minimal robots.txt parser (Allow/Disallow with * and $, longest match wins) + sitemap.xml reader.
 const UA = 'site-blueprint';
+// crawlers of AI companies: "Disallow: /" for them means the owner objects to AI use of the content
+const AI_BOTS = ['gptbot', 'chatgpt-user', 'oai-searchbot', 'claudebot', 'claude-web', 'claude-user', 'claude-searchbot', 'anthropic-ai', 'google-extended', 'ccbot', 'perplexitybot', 'perplexity-user', 'bytespider', 'applebot-extended', 'meta-externalagent', 'facebookbot', 'cohere-ai', 'diffbot', 'amazonbot', 'youbot', 'deepseekbot', 'mistralai-user', 'ai2bot', 'omgili', 'timpibot', 'imagesiftbot'];
 
 export function parseRobots(text) {
   const groups = []; let cur = null; const sitemaps = [];
@@ -13,9 +15,10 @@ export function parseRobots(text) {
     else if (k === 'sitemap') sitemaps.push(v);
   }
   const group = groups.find((g) => g.agents.some((a) => a.includes(UA))) || groups.find((g) => g.agents.includes('*'));
+  const aiBlocked = [...new Set(groups.filter((g) => g.rules.some((r) => !r.allow && r.path === '/')).flatMap((g) => g.agents).filter((a) => AI_BOTS.some((b) => a.includes(b))))];
   const rules = group ? group.rules : [];
   return {
-    rules: rules.length, sitemaps, delay: group && Number.isFinite(group.delay) ? group.delay : undefined,
+    rules: rules.length, sitemaps, aiBlocked, delay: group && Number.isFinite(group.delay) ? group.delay : undefined,
     allowed(url) {
       let p; try { const u = new URL(url); p = (u.pathname || '/') + u.search; } catch { return true; }
       let best = null;

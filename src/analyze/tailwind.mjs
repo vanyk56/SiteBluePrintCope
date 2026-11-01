@@ -1,5 +1,6 @@
 // Computed-style diffs -> Tailwind utility classes, grouped so desktop/mobile can be merged responsively.
 import { fmt, round } from '../util.mjs';
+import { isDirty, mapCssUrls } from './cssvars.mjs';
 
 const DISPLAY = { flex: 'flex', 'inline-flex': 'inline-flex', grid: 'grid', 'inline-grid': 'inline-grid', block: 'block', 'inline-block': 'inline-block', inline: 'inline', none: 'hidden', contents: 'contents', 'list-item': 'list-item', table: 'table', 'table-row': 'table-row', 'table-cell': 'table-cell', 'flow-root': 'flow-root', 'table-row-group': 'table-row-group', 'table-header-group': 'table-header-group' };
 const JUSTIFY = { 'flex-start': 'justify-start', start: 'justify-start', left: 'justify-start', center: 'justify-center', 'flex-end': 'justify-end', end: 'justify-end', right: 'justify-end', 'space-between': 'justify-between', 'space-around': 'justify-around', 'space-evenly': 'justify-evenly', stretch: 'justify-stretch', normal: 'justify-normal' };
@@ -11,7 +12,7 @@ const LEADING = [[1, 'none'], [1.25, 'tight'], [1.375, 'snug'], [1.5, 'normal'],
 const TRACKING = [[-0.05, 'tighter'], [-0.025, 'tight'], [0, 'normal'], [0.025, 'wide'], [0.05, 'wider'], [0.1, 'widest']];
 const RADIUS = { 6: 'md', 8: 'lg', 12: 'xl', 16: '2xl', 24: '3xl' };
 const MAXW = { 320: 'xs', 384: 'sm', 448: 'md', 512: 'lg', 576: 'xl', 672: '2xl', 768: '3xl', 896: '4xl', 1024: '5xl', 1152: '6xl', 1280: '7xl' };
-const RESET = { display: null, position: 'static', inset: 'inset-auto', z: 'z-auto', flexDir: 'flex-row', flexWrap: 'flex-nowrap', justify: 'justify-normal', items: 'items-stretch', gap: 'gap-0', gridCols: 'grid-cols-none', gridFlow: 'grid-flow-row', colSpan: 'col-auto', rowSpan: 'row-auto', flex: 'flex-initial', self: 'self-auto', order: 'order-none', w: 'w-auto', h: 'h-auto', maxW: 'max-w-none', minW: 'min-w-0', maxH: 'max-h-none', minH: 'min-h-0', m: 'm-0', p: 'p-0', border: 'border-0', rounded: 'rounded-none', bg: 'bg-transparent', bgImg: 'bg-none', shadow: 'shadow-none', opacity: 'opacity-100', overflow: 'overflow-visible', transform: 'transform-none', filter: 'filter-none', backdrop: 'backdrop-filter-none', aspect: 'aspect-auto', objectFit: 'object-fill', list: 'list-none', decoration: 'no-underline', transition: 'transition-none', sr: 'not-sr-only' };
+const RESET = { display: null, position: 'static', inset: 'inset-auto', z: 'z-auto', flexDir: 'flex-row', flexWrap: 'flex-nowrap', justify: 'justify-normal', items: 'items-stretch', gap: 'gap-0', gridCols: 'grid-cols-none', gridFlow: 'grid-flow-row', colSpan: 'col-auto', rowSpan: 'row-auto', flex: 'flex-initial', self: 'self-auto', order: 'order-none', w: 'w-auto', h: 'h-auto', maxW: 'max-w-none', minW: 'min-w-0', maxH: 'max-h-none', minH: 'min-h-0', m: 'm-0', p: 'p-0', border: 'border-0', rounded: 'rounded-none', bg: 'bg-transparent', bgImg: 'bg-none', shadow: 'shadow-none', opacity: 'opacity-100', overflow: 'overflow-visible', clamp: 'line-clamp-none', transform: 'transform-none', filter: 'filter-none', backdrop: 'backdrop-filter-none', aspect: 'aspect-auto', objectFit: 'object-fill', list: 'list-none', decoration: 'no-underline', transition: 'transition-none', sr: 'not-sr-only' };
 export const INH_GROUP_KEYS = { textColor: ['color', '-webkit-text-fill-color'], fontFamily: ['font-family'], fontSize: ['font-size', 'line-height'], fontWeight: ['font-weight'], tracking: ['letter-spacing'], italic: ['font-style'], textAlign: ['text-align'], textTransform: ['text-transform'], whitespace: ['white-space'], textShadow: ['text-shadow'], cursor: ['cursor'] };
 const ROOT_SKIP = { cursor: 'auto', 'text-align': 'start', 'text-transform': 'none', 'white-space': 'normal', 'text-shadow': 'none', 'font-style': 'normal', 'letter-spacing': 0 };
 
@@ -102,7 +103,9 @@ export function authoredLen(kind, v) {
 }
 const UA_OVERFLOW = new Set(['img', 'svg', 'video', 'canvas', 'iframe', 'embed', 'object']);
 
-export function createTw(tokens, { vh = 900, assetUrl = (u) => u } = {}) {
+export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } = {}) {
+  // long / data-URI values go to CSS variables (@theme static) instead of class names — see cssvars.mjs
+  const bgImg = (v, multi = splitTop(v).length > 1) => (vars && isDirty(v) ? `bg-(image:${vars.add('bgi', v)})` : multi ? `[background-image:${arb(v)}]` : `bg-[${arb(v)}]`);
   const KF = tokens.keyframes || {};
   const animatedProps = (s) => { if (!s.animation) return ''; let txt = ''; for (const nm of s.animation.split(' | ')[0].split(',').map((x) => x.trim())) { if (!KF[nm]) return 'transform opacity'; txt += KF[nm]; } return txt; };
   const colorMap = tokens.colorMap || {}; const shadowMap = tokens.shadowMap || {}; const fontMap = tokens.fontMap || {};
@@ -190,7 +193,7 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u } = {}) {
       const hCls = () => { const a = s.hv ? authoredLen('h', s.hv) : ''; if (a) return a; return Math.abs(s.h - vh) <= 1 ? 'h-screen' : Number.isInteger(s.h / 4) && s.h <= 384 ? `h-${s.h / 4}` : `h-[${fmt(s.h)}px]`; };
       const natOk = t === 'img' && s.w !== undefined && s.h > 0 && n._ar && Math.abs(n._ar - s.w / s.h) < 0.02 && (!s['object-fit'] || s['object-fit'] === 'fill');
       if (natOk && au.includes('h') && !au.includes('w')) g.h = hCls();
-      else if (natOk && !au.includes('h')) { if (au.includes('w') || !(n._nw >= s.w - 1)) g.w = wCls(); g.h = 'h-auto'; }
+      else if (natOk && !au.includes('h')) { if (au.includes('w') || !(n._nw >= s.w - 1) || !full) g.w = wCls(); g.h = 'h-auto'; } // downscaled below the container width (width attr / CSS) → explicit width
       else {
         if (s.w !== undefined) g.w = wCls();
         if (s.h !== undefined && !(g.w || '').startsWith('size-')) g.h = hCls();
@@ -225,26 +228,25 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u } = {}) {
     }
     if (s['background-color']) g.bg = col('bg', s['background-color']);
     if (s['background-image']) {
-      if (!s['background-image'].includes('data:') && !s['background-image'].includes('inline-image-missing') && s['background-image'].length < 300) {
-        const v = s['background-image'].replace(/url\(["']?(.*?)["']?\)/g, (m, u) => `url(${assetUrl(u) || u})`);
-        const out = [splitTop(v).length > 1 ? `[background-image:${arb(v)}]` : `bg-[${arb(v)}]`];
-        const size = s['background-size']; if (size) out.push(size === 'cover' ? 'bg-cover' : size === 'contain' ? 'bg-contain' : `bg-[length:${arb(size)}]`);
-        const pos = s['background-position']; if (pos) out.push({ '50% 50%': 'bg-center', 'center center': 'bg-center', '50% 0%': 'bg-top', '50% 100%': 'bg-bottom' }[pos] || `bg-[position:${arb(pos)}]`);
-        const rep = s['background-repeat']; if (rep) out.push({ 'no-repeat': 'bg-no-repeat', 'repeat-x': 'bg-repeat-x', 'repeat-y': 'bg-repeat-y' }[rep] || `[background-repeat:${arb(rep)}]`);
-        if (s['background-attachment'] === 'fixed') out.push('bg-fixed');
-        g.bgImg = out.join(' ');
-      }
+      const v = mapCssUrls(s['background-image'], (u, q) => { const w = assetUrl(u); return w && w !== u ? `url(${w})` : `url(${q}${u}${q})`; });
+      const out = [bgImg(v)];
+      const size = s['background-size']; if (size) out.push(size === 'cover' ? 'bg-cover' : size === 'contain' ? 'bg-contain' : `bg-[length:${arb(size)}]`);
+      const pos = s['background-position']; if (pos) out.push({ '50% 50%': 'bg-center', 'center center': 'bg-center', '50% 0%': 'bg-top', '50% 100%': 'bg-bottom' }[pos] || `bg-[position:${arb(pos)}]`);
+      const rep = s['background-repeat']; if (rep) out.push({ 'no-repeat': 'bg-no-repeat', 'repeat-x': 'bg-repeat-x', 'repeat-y': 'bg-repeat-y' }[rep] || `[background-repeat:${arb(rep)}]`);
+      if (s['background-attachment'] === 'fixed') out.push('bg-fixed');
+      g.bgImg = out.join(' ');
     }
     if (s['background-clip'] === 'text') g.bgClip = 'bg-clip-text';
     if (s['box-shadow']) g.shadow = shadowMap[s['box-shadow']] ? `shadow-${shadowMap[s['box-shadow']]}` : `shadow-[${arb(s['box-shadow'])}]`;
     const anim = animatedProps(s);
     if (s.opacity !== undefined && !/opacity/.test(anim)) { const o = Math.round(s.opacity * 100); g.opacity = o % 5 === 0 ? `opacity-${o}` : `opacity-[${s.opacity}]`; }
     if (s.overflow && !(UA_OVERFLOW.has(t) && /^(clip|hidden)$/.test(s.overflow))) { const [ox, oy] = s.overflow.split(' '); g.overflow = !oy ? `overflow-${ox}` : `overflow-x-${ox} overflow-y-${oy}`; }
+    if (s['line-clamp']) { g.clamp = `line-clamp-${s['line-clamp']}`; if (/^(-webkit-(inline-)?box|flow-root|block)$/.test(s.display || '')) delete g.display; if (g.overflow === 'overflow-hidden') delete g.overflow; }
     if (s.transform && !/transform|translate|rotate|scale/.test(anim)) g.transform = transformCls(s.transform);
     if (s.filter) g.filter = filterCls(s.filter);
     if (s['backdrop-filter']) g.backdrop = filterCls(s['backdrop-filter'], 'backdrop-');
     if (s['mix-blend-mode']) g.blend = `mix-blend-${s['mix-blend-mode']}`;
-    if (s['clip-path']) g.clip = `[clip-path:${arb(s['clip-path'])}]`;
+    if (s['clip-path']) g.clip = vars && isDirty(s['clip-path']) ? `[clip-path:var(${vars.add('clip', s['clip-path'])})]` : `[clip-path:${arb(s['clip-path'])}]`;
     if (s['aspect-ratio']) { const a = s['aspect-ratio'].replace(/\s+/g, ''); g.aspect = a === '16/9' ? 'aspect-video' : a === '1/1' || a === '1' ? 'aspect-square' : `aspect-[${a}]`; }
     if (s['object-fit']) g.objectFit = `object-${s['object-fit']}`;
     if (s['object-position']) g.objectPos = s['object-position'] === '50% 0%' ? 'object-top' : `object-[${arb(s['object-position'])}]`;
@@ -274,14 +276,14 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u } = {}) {
   function pseudoCls(prefix, p) {
     const out = [];
     const content = p.content === '""' || p.content === "''" ? "''" : "'" + p.content.replace(/^["']|["']$/g, '').replace(/'/g, "\\'") + "'";
-    out.push(`content-[${arb(content)}]`);
+    out.push(vars && isDirty(content) ? `content-(${vars.add('content', content)})` : `content-[${arb(content)}]`);
     if (p.position && p.position !== 'static') out.push(p.position);
     if (p.inset) out.push(insetCls(p.inset));
     if (p.display && !['inline', 'block'].includes(p.display) || (p.display === 'block' && p.position === 'static')) out.push(DISPLAY[p.display] || '');
     if (p.w !== undefined) out.push(typeof p.w === 'number' ? `w-[${fmt(p.w)}px]` : `w-[${arb(p.w)}]`);
     if (p.h !== undefined) out.push(typeof p.h === 'number' ? `h-[${fmt(p.h)}px]` : `h-[${arb(p.h)}]`);
     if (p.bg) out.push(col('bg', p.bg));
-    if (p.bgi && !p.bgi.includes('data:') && !p.bgi.includes('inline-image-missing') && p.bgi.length < 200) out.push(`bg-[${arb(p.bgi)}]`);
+    if (p.bgi) out.push(bgImg(p.bgi, false));
     if (p.radius !== undefined) out.push(typeof p.radius === 'number' ? (p.radius >= 999 ? 'rounded-full' : `rounded-[${fmt(p.radius)}px]`) : `rounded-[${arb(p.radius)}]`);
     if (p.shadow) out.push(`shadow-[${arb(p.shadow)}]`);
     if (p.opacity !== undefined) out.push(`opacity-[${p.opacity}]`);
@@ -300,7 +302,7 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u } = {}) {
       if (k === 'color') out.push(col('text', to)); else if (k === 'bg') out.push(col('bg', to)); else if (k === 'border') out.push(col('border', to));
       else if (k === 'shadow') out.push(!to || to === 'none' ? 'shadow-none' : shadowMap[to] ? `shadow-${shadowMap[to]}` : `shadow-[${arb(to)}]`); else if (k === 'opacity') out.push(`opacity-[${to}]`);
       else if (k === 'transform') out.push(to ? transformCls(to) : 'transform-none'); else if (k === 'decoration') out.push(to.includes('underline') ? 'underline' : 'no-underline');
-      else if (k === 'filter') out.push(to ? filterCls(to) : 'filter-none'); else if (k === 'bgi') out.push(to ? `bg-[${arb(to)}]` : 'bg-none');
+      else if (k === 'filter') out.push(to ? filterCls(to) : 'filter-none'); else if (k === 'bgi') out.push(to ? bgImg(to, false) : 'bg-none');
       else if (k === 'scale' && to) out.push(`scale-[${to.split(' ')[0]}]`); else if (k === 'translate' && to) out.push(`translate-[${arb(to)}]`);
     }
     return out.join(' ').split(/\s+/).filter(Boolean).map((c) => `hover:${c}`).join(' ');

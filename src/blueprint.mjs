@@ -6,6 +6,7 @@ import { treeToMarkdown } from './output/content.mjs';
 import { iconsFile, layoutFile, pageFile, PKG_VERSIONS } from './output/project.mjs';
 import { buildGlobalsCss } from './output/theme.mjs';
 import { frequentClasses } from './llm/prompts.mjs';
+import { apiTable } from './output/api.mjs';
 
 const esc = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim();
 const table = (head, rows) => (rows.length ? [`| ${head.join(' | ')} |`, `| ${head.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.map(esc).join(' | ')} |`)].join('\n') : '_нет данных_');
@@ -78,10 +79,47 @@ function cardCandidates(site) {
     const note = k.mode === 'template' ? (k.name ? `данные: \`${k.name}\`` : 'одинаковые элементы')
       : k.mode === 'mixed' ? `данные: \`${k.name || '—'}\`; часть элементов оформлена иначе → проп \`variant\``
       : k.mode === 'full' ? `элементы различаются оформлением (${k.variants} варианта) → проп \`variant\`/\`featured\``
-      : 'первые элементы в разметке, остальные — массивом текстов';
+      : 'первые элементы в разметке, остальные — массивом данных (текст, картинка, ссылка)';
     out.push({ name, where: c.name, count: k.count, fields: k.fields || [], note });
   }
   return out;
+}
+
+// tab groups (role=tab or rows of toggle buttons): content tabs -> text of each tab, filters -> which items stay visible
+function tabGroupLines(g) {
+  const items = g.items || [];
+  const common = new Set(items.length ? items[0].heads || [] : []);
+  for (const it of items) { const hs = new Set(it.heads || []); for (const h of [...common]) if (!hs.has(h)) common.delete(h); }
+  const others = items.filter((x) => !x.active);
+  // filter = other tabs only hide items (nothing new appears) and the set of visible item headings changes
+  const isFilter = others.length > 0 && others.every((x) => x.removed > 0 && x.addedLines <= 2) && items.some((x) => (x.heads || []).some((h) => !common.has(h)));
+  const kind = isFilter ? 'фильтр карточек (useState + .filter по категории)' : 'переключение содержимого (useState, содержимое каждого таба — ниже)';
+  const L = [`- **${g.heuristic ? 'Кнопки-переключатели' : 'Табы (role="tab")'} «${g.labels.join(' / ')}»** — ${kind}; по умолчанию активен «${g.active}»:`];
+  for (const it of items) {
+    const hs = (it.heads || []).filter((h) => !common.has(h));
+    const parts = [];
+    if (it.panel && !isFilter) parts.push(truncate(it.panel.replace(/\n+/g, ' / '), 700));
+    else if (it.added && it.addedLines && !isFilter) parts.push(truncate(it.added.replace(/\n+/g, ' / '), 700));
+    if (hs.length && (isFilter || !parts.length)) parts.push(`видны (${hs.length}): ${truncate(hs.join(' · '), 600)}`);
+    if (it.active && !parts.length) parts.push('содержимое по умолчанию — уже в разметке секции');
+    if (parts.length) L.push(`  - «${it.label}»${it.active ? ' (активен)' : ''}: ${parts.join(' — ')}`);
+  }
+  return L.length > 1 ? L : [];
+}
+// overlays opened by a click (cart drawer, modal, popup)
+function dialogLines(d, vp) {
+  const W = vp.w || 1440, H = vp.h || 900; const L = [];
+  for (const o of d.overlays || []) {
+    const R = (o.panel && o.panel.rect) || o.rect; const [x, y, w, h] = R;
+    const bg = (o.panel && o.panel.bg) || o.bg; const rad = (o.panel && o.panel.radius) || o.radius;
+    const kind = h >= H * 0.9 && x + w >= W - 2 && w < W * 0.75 ? 'выезжающая справа панель (drawer)'
+      : h >= H * 0.9 && x <= 2 && w < W * 0.75 ? 'выезжающая слева панель (drawer)'
+        : w >= W * 0.9 && y + h >= H - 2 && h < H * 0.8 ? 'нижняя шторка (bottom sheet)'
+          : w >= W * 0.9 && h >= H * 0.9 ? 'полноэкранный слой' : 'модальное окно по центру';
+    const props = [kind, `${w}×${h}px`, bg ? `фон ${bg}` : '', rad && rad !== '0px' ? `скругление ${rad}` : '', o.blur ? `backdrop ${o.blur}` : '', d.backdrop ? `подложка ${d.backdrop.bg}${d.backdrop.blur ? ' + ' + d.backdrop.blur : ''}` : '', o.modal ? 'aria-modal' : ''].filter(Boolean).join(', ');
+    L.push(`- **Окно по кнопке «${truncate(d.trigger, 60)}»** (${props})${o.label ? ` «${truncate(o.label, 80)}»` : ''}: ${truncate(String(o.text || '').replace(/\n+/g, ' / '), 800)}${d.screenshot ? ` — скриншот \`${d.screenshot}\`` : ''}`);
+  }
+  return L;
 }
 
 function hoverLines(site, max = 14) {
@@ -126,12 +164,15 @@ function masterPrompt(site, llm, ctx) {
     '4. Тексты — раздел 4 и код компонентов: переносить дословно (пунктуация, регистр, эмодзи, неразрывные пробелы). Ничего не сокращай и не перефразируй.',
     '5. Иконки и логотипы — components/icons.tsx (раздел 3, SVG как код). Картинки и шрифты уже лежат в public/, пути в коде прописаны.',
     `6. Адаптив mobile-first: классы без префикса = мобильная версия (${site.home.mob ? site.home.mob.raw.viewport.w : 390}px), префиксы sm:/md:/lg: = десктоп (${site.home.raw.viewport.w}px). Брейкпоинты взяты из media queries исходника. Сверяйся со скриншотами \`screenshots/desktop/*.png\`, \`screenshots/mobile/*.png\` и кадрами секций \`screenshots/sections/\`.`,
-    '7. Интерактив (раздел 7): бургер-меню, выпадающие меню, табы, аккордеоны, слайдеры — в маленьких клиентских компонентах (`\'use client\'` + useState). Hover-состояния и transitions уже есть в классах. Скрытый контент (ответы FAQ, панели табов, пункты меню) уже извлечён — используй его.',
-    '8. Повторяющиеся элементы держи в массивах данных + .map() (как в каркасе). Общие кнопки/карточки вынеси в components/ui (раздел 5).',
+    '7. Интерактив (раздел 7) уже частично работает: `components/interactive/` — `<MobileMenu>` (бургер, isOpen), `<ModalTrigger>` (модалки), `<CartProvider>/<CartButton>/<AddToCart>` (корзина), `<Disclosure>` (aria-expanded), а секции с табами/фильтрами — клиентские (`\'use client\'` + useState, `filterCatalog` из `lib/catalog.ts`: категория, поиск, сортировка по цене). Сохрани эти компоненты и их состояние; где в начале файла секции стоит `// Интерактив (…)` — допиши вручную (маленькие клиентские компоненты, useState). Hover-состояния и transitions уже есть в классах, скрытый контент (ответы FAQ, панели табов, пункты меню) уже извлечён.',
+    '8. Повторяющиеся элементы держи в массивах данных + .map() (как в каркасе). Индивидуальные цвета карточек заданы CSS-переменными (`style={{ \'--item-color\': item.color }}` + классы с `var(--item-color)`) — сохрани этот приём. Общие кнопки/карточки вынеси в components/ui (раздел 5).',
     '9. Где в разделе 6 написано «DOM мобильной версии отличается» — адаптив делай по мобильному скриншоту. Canvas/WebGL/видео-фоны — по скриншоту и ассетам.',
     '10. Не подключай аналитику, трекеры, чат-виджеты и сторонние скрипты исходника. Внешние ссылки оставь как есть.',
-    '11. Готово, когда выполнен чек-лист раздела 9: каждая секция совпадает со скриншотом на десктопе и мобильном, `npm run build` проходит без ошибок.',
+    '11. Неразрывные пробелы (`&nbsp;` в JSX, `\\u00a0` в строках данных) стоят там же, где в исходнике (цены, единицы, предлоги) — не заменяй их обычными пробелами.',
+    '12. Табы, фильтры, корзина/модальные окна — в разделе 7 есть содержимое каждого таба, состав каждого фильтра и вид каждого окна со скриншотом.',
+    '13. Готово, когда выполнен чек-лист раздела 9: каждая секция совпадает со скриншотом на десктопе и мобильном, `npm run build` проходит без ошибок, а `site-blueprint heal <папка>` (сборка + визуальная регрессия → `VERIFICATION_REPORT.md`) показывает сходство не ниже целевого и `site-blueprint verify <папка> --url http://localhost:3000` не находит расхождений.',
   ];
+  if (site.api && site.api.count) L.push(`14. Данные, которые исходник подгружал через fetch/XHR (${site.api.count} ответ(ов), раздел 7 → «API и данные»), уже записаны в \`project/mocks/data/*.json\` и отдаются маршрутом \`app/api/[...route]/route.ts\` (реестр \`mocks/registry.ts\`, хелперы \`lib/mock-api.ts\`). Клиентские компоненты запрашивают тот же путь, что и оригинал (\`/api/...\`; другие пути перенаправлены rewrites в next.config) — мок вернёт записанный ответ. Персональные данные и токены в моках заменены заглушками — не возвращай настоящие. Когда появится свой бэкенд, замени мок на реальный запрос.`);
   const add = llm && llm.globalSections && [...llm.globalSections.entries()].find(([k]) => /мастер|промпт|prompt/i.test(k));
   if (add && add[1].trim()) L.push('', `Особенности этого сайта (анализ ${llm.model}):`, add[1].trim());
   if (ctx.templates.length) L.push('', 'Страницы одного шаблона: ' + ctx.templates.map((g) => `${g.key} (${g.pages.map((p) => p.route).join(', ')})`).join('; ') + ' — сделай один динамический маршрут [slug] + массив данных.');
@@ -172,6 +213,12 @@ export async function writeBlueprint(site, outDir, { llm = null, llmInfo = {}, p
     S.push(`- **Технологии исходника (по признакам):** ${tech.join(', ') || 'не определены'}`);
     S.push(`- **Язык:** ${site.home.raw.meta.lang || '—'} · **фон страницы:** ${t.pageBg} · **основной шрифт:** ${(t.fonts.body && t.fonts.body.family) || '—'}${t.fonts.heading && t.fonts.heading.family !== (t.fonts.body && t.fonts.body.family) ? ` · **заголовки:** ${t.fonts.heading.family}` : ''}`);
     if (site.crawl.skipped && site.crawl.skipped.length) S.push(`- **Пропущено при обходе:** ${site.crawl.skipped.length} URL (подробно: data/crawl.json → skipped)${site.crawl.robots && site.crawl.robots.rules ? ' · robots.txt учтён' : ''}`);
+    const tr = site.crawl.trackers || {};
+    const trNames = [...new Set([...(tr.found || []).map((x) => x.name + (x.ids && x.ids.length ? ' (' + x.ids.slice(0, 3).join(', ') + ')' : '')), ...(tr.blocked || []).map((x) => x.name)])];
+    if (trNames.length) S.push(`- **Аналитика/трекеры/виджеты исходника (в клон не перенесены):** ${trNames.slice(0, 12).join(', ')}${(tr.blocked || []).length ? ` · заблокировано запросов при обходе: ${(tr.blocked || []).reduce((a, x) => a + (x.count || 0), 0)}` : ''}`);
+    if (site.api && site.api.count) S.push(`- **API исходника:** записано ${site.api.count} ответ(ов) fetch/XHR → мок-API в \`project/app/api/[...route]/route.ts\` (раздел 7 → «API и данные»)`);
+    const aiB = (site.crawl.robots && site.crawl.robots.aiBlocked) || [];
+    if (aiB.length) S.push(`- **⚠ robots.txt закрывает сайт для ИИ-ботов** (${aiB.slice(0, 8).join(', ')}${aiB.length > 8 ? '…' : ''}): владелец против использования контента нейросетями. Используй клон только с разрешения владельца или как основу со своим контентом.`);
     for (const g of ctx.templates) S.push(`- **Шаблон ${g.key}:** ${g.pages.map((p) => p.route).join(', ')} — одинаковая структура, сделай \`app${g.key.replace(/\/\*/g, '/[slug]')}/page.tsx\` и данные для каждой записи.`);
     const gd = llm && llm.globalSections && [...llm.globalSections.entries()].find(([k]) => /дизайн-язык|design/i.test(k));
     if (gd) S.push('', `### Дизайн-язык (анализ ${llm.model})`, '', demote(gd[1], 2));
@@ -208,7 +255,8 @@ export async function writeBlueprint(site, outDir, { llm = null, llmInfo = {}, p
     const imgs = imagesTable(site);
     S.push(`### 3.2 Изображения (${imgs.length})`, '', table(['Файл (public)', 'alt', 'Оригинал', 'На странице', 'Где'], imgs.slice(0, 250)), '');
     if (imgs.length > 250) S.push(`_…ещё ${imgs.length - 250}, полный список — data/crawl.json → assets._`, '');
-    S.push('### 3.3 Шрифты', '', table(['Семейство', 'Насыщ.', 'Стиль', 'Файл'], (site.crawl.fonts || []).map((f) => [f.family, f.weight, f.style, f.web ? '`public' + f.web + '`' : '⚠ не скачан: ' + truncate(f.url, 80)])), '');
+    S.push('### 3.3 Шрифты', '', table(['Семейство', 'Насыщ.', 'Стиль', 'Символы', 'Файл'], (site.crawl.fonts || []).map((f) => [f.family, f.weight, f.style, f.subset || (f.unicodeRange ? truncate(f.unicodeRange, 40) : 'все'), f.web ? '`public' + f.web + '`' : '⚠ не скачан: ' + truncate(f.url, 80)])), '');
+    if ((site.crawl.fonts || []).some((f) => f.unicodeRange)) S.push('_Шрифт разбит на наборы символов (unicode-range): все файлы уже подключены в globals.css с теми же диапазонами — кириллица и латиница грузятся отдельно, удалять «лишние» файлы нельзя._', '');
     if ((t.googleFonts || []).length) S.push(`Google Fonts: ${t.googleFonts.join(', ')} — подключи через \`next/font/google\`.`, '');
     const m = site.home.raw.meta;
     S.push('### 3.4 Favicon и соцсети', '', `- favicon: ${(m.favicons || []).map((f) => f.local ? '`public' + f.local + '`' : f.href).join(', ') || '—'}`, `- og:image: ${m.ogImageLocal ? '`public' + m.ogImageLocal + '`' : m.ogImage || '—'}`, `- theme-color: ${m.themeColor || '—'}`, '');
@@ -258,6 +306,13 @@ export async function writeBlueprint(site, outDir, { llm = null, llmInfo = {}, p
 
     // 7. hidden content & interactions
     S.push('## 7. Скрытый контент и интерактив', '');
+    const ready = site.components.filter((c) => (c.render.features || []).length || (c.render.client || []).length);
+    if (ready.length) {
+      S.push('**Уже реализовано в `project/` (рабочее состояние, не заглушки):**', '');
+      for (const c of ready) S.push(`- \`${c.file}\`${c.client ? ' (`\'use client\'`)' : ''}: ${[...(c.render.features || []), ...(c.render.client || []).map((x) => '`<' + x + '>`')].join('; ')}`);
+      if (site.cart) S.push(`- \`app/layout.tsx\`: \`<CartProvider>\` — корзина «${site.cart.title || 'Корзина'}» (дроуэр ${site.cart.look && site.cart.look.side === 'left' ? 'слева' : 'справа'}${site.cart.look && site.cart.look.width ? ', ' + site.cart.look.width + 'px' : ''}), состояние в localStorage, без реальной оплаты.`);
+      S.push('');
+    }
     const seen7 = new Set(); let dup7 = 0;
     const once = (key) => { if (seen7.has(key)) { dup7++; return false; } seen7.add(key); return true; };
     for (const p of site.pages) {
@@ -265,6 +320,9 @@ export async function writeBlueprint(site, outDir, { llm = null, llmInfo = {}, p
       for (const d of pr.dropdowns || []) if (once('dd|' + d.label + '|' + (d.links || []).map((l) => l.href).join(','))) L.push(`- **Выпадающее меню «${d.label}»** (hover): ${(d.links || []).map((l) => `[${l.text}](${site.linkFor(l.href).href})`).join(' · ') || truncate(d.text, 300)}${d.screenshot ? ` — \`${d.screenshot}\`` : ''}`);
       if (p.rec.mobile && p.rec.mobile.burger && once('burger|' + p.rec.mobile.burger.text)) { const b = p.rec.mobile.burger; L.push(`- **Мобильное меню (бургер):** ${String(b.text || '').split('\n').map((x) => x.trim()).filter(Boolean).join(' · ')}${b.screenshot ? ` — \`${b.screenshot}\`` : ''}`); }
       for (const x of pr.tabs || []) if (once('tab|' + x.label + '|' + String(x.text || '').slice(0, 300))) L.push(`- **Таб «${x.label}»:** ${truncate(String(x.text || '').replace(/\n+/g, ' / '), 500)}`);
+      for (const g of pr.tabGroups || []) if (once('tg|' + g.labels.join('|') + '|' + g.items.map((x) => (x.added || x.panel || '').slice(0, 80)).join('|'))) L.push(...tabGroupLines(g));
+      for (const d of pr.dialogs || []) if (once('dlg|' + d.trigger + '|' + d.overlays.map((o) => String(o.text || '').slice(0, 160)).join('|'))) L.push(...dialogLines(d, p.raw.viewport || {}));
+      for (const m of p.raw.media || []) if (m.snapshot && once('cv|' + m.snapshot)) L.push(`- **Canvas/WebGL ${m.w || ''}${m.h ? '×' + m.h : ''}:** в исходнике рисуется скриптом; в каркас подставлен статичный снимок \`project/public${m.snapshot}\` — при желании замени анимацией.`);
       for (const x of pr.details || []) if (once('det|' + x.q + '|' + String(x.a || '').slice(0, 200))) L.push(`- **Аккордеон «${truncate(x.q, 120)}»:** ${truncate(String(x.a || '').replace(/\n+/g, ' '), 600)}`);
       for (const x of pr.expand || []) if (x.text && once('exp|' + x.label + '|' + String(x.text).slice(0, 200))) L.push(`- **Раскрывающийся блок «${truncate(x.label, 100)}»:** ${truncate(String(x.text).replace(/\n+/g, ' '), 500)}`);
       for (const f of p.raw.forms || []) {
@@ -276,6 +334,15 @@ export async function writeBlueprint(site, outDir, { llm = null, llmInfo = {}, p
     }
     if (!seen7.size) S.push('_Скрытого интерактивного контента не найдено._', '');
     if (dup7) S.push(`_Интерактив общих блоков (шапка, повторяющиеся секции) описан один раз — у первой страницы, где он встретился (повторов пропущено: ${dup7})._`, '');
+    const at = apiTable(site.api);
+    if (at.length) {
+      const red = site.api.redaction || {};
+      const redLine = Object.entries(red.kinds || {}).filter(([, v]) => v).map(([k, v]) => `${k} ×${v}`).join(', ');
+      S.push('### API и данные (мок-API)', '', 'Ответы fetch/XHR/GraphQL, записанные при обходе. В проекте их отдаёт `app/api/[...route]/route.ts` по методу, пути, query и operationName (GraphQL); JSON лежит в `project/mocks/data/`, пути вне `/api` перенаправлены rewrites в `next.config.mjs`.', '', ...at, '');
+      S.push(red.enabled === false
+        ? '_⚠ Редакция секретов выключена (`--no-redact`): проверь моки вручную перед публикацией. Трекинговые запросы (аналитика, пиксели, beacon) не записывались._'
+        : `_Секреты и персональные данные заменены заглушками (заголовки Authorization/Cookie удалены${redLine ? '; замены: ' + redLine : ''}). Трекинговые запросы (аналитика, пиксели, beacon) не записывались._`, '');
+    }
     const hv = hoverLines(site);
     if (hv.length) S.push('### Hover-состояния (замерены в браузере)', '', ...hv, '');
     S.push('### SEO', '', table(['Маршрут', 'title', 'description', 'og:title'], site.pages.map((p) => [p.route, p.raw.meta.title || '—', truncate(p.raw.meta.description || '—', 160), truncate(p.raw.meta.ogTitle || '—', 80)])), '');
@@ -311,8 +378,11 @@ export async function writeBlueprint(site, outDir, { llm = null, llmInfo = {}, p
     const tg = internalTargets(site);
     if (tg.length) Q.push(`- [ ] Внутренние ссылки на непросканированные страницы (создай заглушки или оставь): ${tg.slice(0, 30).map(([r]) => '`' + r + '`').join(', ')}${tg.length > 30 ? ' …' : ''}`);
     Q.push('- [ ] Нет аналитики/трекеров/скриптов исходного сайта');
+    if (site.api && site.api.count) Q.push('- [ ] Данные из API приходят из мок-API (`/api/...` → `mocks/data/*.json`), в моках нет настоящих токенов и персональных данных');
+    Q.push('- [ ] `VERIFICATION_REPORT.md`: сборка ✅, сходство каждой страницы не ниже целевого (пересчёт: `site-blueprint heal <папка>`)');
+    Q.push('- [ ] Автосверка: запусти клон (`npm run dev`) и `site-blueprint verify <папка этого blueprint> --url http://localhost:3000` → отчёт `verify/report.md` (высоты секций, битые картинки, ошибки консоли, горизонтальный скролл, % отличий скриншотов)');
     S.push(...Q, '');
-    S.push('---', '', '**Файлы рядом с этим документом:** `project/` — стартовый Next.js-проект · `screenshots/` — desktop, mobile, sections, interactions, llm · `content/` — тексты страниц в Markdown · `pages/` — детальные спецификации страниц · `dom/` — очищенный HTML (без скриптов) · `data/` — сырые данные (crawl.json, pages/*.json, css/, design-tokens.json, llm/).', '');
+    S.push('---', '', '**Файлы рядом с этим документом:** `project/` — стартовый Next.js-проект · `screenshots/` — desktop, mobile, sections, interactions, llm · `content/` — тексты страниц в Markdown · `pages/` — детальные спецификации страниц · `dom/` — очищенный HTML (без скриптов) · `data/` — сырые данные (crawl.json, pages/*.json, css/, design-tokens.json, api-mocks/, llm/) · `snapshots/` — автономные HTML-снимки страниц (SingleFile-подобные) · `VERIFICATION_REPORT.md` + `verify/` — результат автопроверки клона.', '');
     return S.join('\n');
   };
 

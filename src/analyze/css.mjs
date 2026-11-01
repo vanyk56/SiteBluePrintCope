@@ -33,9 +33,35 @@ export function fontUrlsFromFaces(faces) {
   const out = [];
   for (const f of faces) {
     for (const m of (f.src || '').matchAll(/url\(["']?([^"')]+)["']?\)\s*(?:format\(["']?([\w-]+)["']?\))?/g)) {
-      if (m[1].startsWith('data:')) continue;
-      try { out.push({ url: new URL(m[1], f.base).href, family: f.family, weight: f.weight, style: f.style, format: m[2] || '' }); } catch {}
+      if (m[1].startsWith('data:') && !f.allowData) continue; // inline fonts only from JS FontFace(ArrayBuffer)
+      try { out.push({ url: new URL(m[1], f.base).href, family: f.family, weight: f.weight, style: f.style, format: m[2] || '', unicodeRange: f.unicodeRange || '' }); } catch {}
     }
   }
   return out;
+}
+
+// unicode-range: "U+0000-00FF, U+0131, U+04??" -> [[from, to], ...]
+export function parseUnicodeRange(s) {
+  const out = [];
+  for (const part of String(s || '').split(',')) {
+    const m = /U\+([0-9a-f?]+)(?:-([0-9a-f]+))?/i.exec(part.trim()); if (!m) continue;
+    if (m[1].includes('?')) { out.push([parseInt(m[1].replace(/\?/g, '0'), 16), parseInt(m[1].replace(/\?/g, 'f'), 16)]); continue; }
+    const a = parseInt(m[1], 16); out.push([a, m[2] ? parseInt(m[2], 16) : a]);
+  }
+  return out;
+}
+// does a font subset cover any character used on the page?
+export function rangeHits(range, codePoints) {
+  const R = parseUnicodeRange(range); if (!R.length) return true;
+  return codePoints.some((c) => c > 32 && R.some(([a, b]) => c >= a && c <= b));
+}
+export function subsetName(range) {
+  const R = parseUnicodeRange(range); if (!R.length) return '';
+  const has = (a, b) => R.some(([x, y]) => x <= b && y >= a);
+  if (has(0x0400, 0x04ff)) return has(0x0460, 0x052f) && !has(0x0410, 0x044f) ? 'cyrillic-ext' : 'cyrillic';
+  if (has(0x0370, 0x03ff)) return 'greek';
+  if (has(0x1ea0, 0x1ef9) && !has(0x0041, 0x005a)) return 'vietnamese';
+  if (has(0x0041, 0x007a)) return 'latin';
+  if (has(0x0100, 0x024f)) return 'latin-ext';
+  return 'u' + R[0][0].toString(16);
 }

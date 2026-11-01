@@ -12,15 +12,16 @@ export function loadEnv() {
     catch {
       for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
         const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-        if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
+        if (!m || process.env[m[1]] !== undefined) continue;
+        const q = /^(['"])(.*)\1$/.exec(m[2]);
+        process.env[m[1]] = q ? q[2] : m[2].replace(/(^|\s+)#.*$/, ''); // unquoted: "value   # comment" → "value"
       }
     }
   }
 }
 
-// OpenAI-compatible providers. Model defaults only where verified.
+// OpenAI-compatible providers. Model defaults only where verified (Z.ai GLM-5.3-Flash is multimodal).
 export const PROVIDERS = {
-  river: { baseUrl: 'https://api.river.ai/v1', model: 'deepseek-ai/DeepSeek-V4.1-Flash-1017', vision: true, keyEnv: ['RIVER_API_KEY'] },
   zai: { baseUrl: 'https://api.z.ai/api/paas/v4', model: 'glm-5.3-flash', vision: true, temperature: 1, topP: 0.95, keyEnv: ['ZAI_API_KEY'] },
   'zai-coding': { baseUrl: 'https://api.z.ai/api/coding/paas/v4', model: 'glm-5.3-flash', vision: true, temperature: 1, topP: 0.95, keyEnv: ['ZAI_API_KEY'] },
   zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: '', vision: true, keyEnv: ['ZHIPU_API_KEY'] },
@@ -37,10 +38,14 @@ export const DEFAULTS = {
   viewport: '1440x900', mobileViewport: '390x844', mobile: true, hover: true, interactions: true,
   robots: true, subdomains: false, sitemap: true, cookies: true, headful: false, html: true,
   maxNodes: 4000, maxAssets: 400, maxAssetMb: 15, assets: true,
-  llm: true, lang: 'ru', verbose: false, locale: '',
+  llm: true, lang: 'ru', verbose: false, locale: '', zip: true,
+  // v2: API sniffer, snapshots, plugins, self-healing build + visual regression, extension server
+  api: true, redact: true, maxMocks: 250, snapshot: true, blockTrackers: true, catalogTools: true,
+  verify: true, visual: true, healIterations: 4, deps: 'shared', threshold: 0.1, minSimilarity: 0.85,
+  port: 3005, host: '127.0.0.1', maxUploadMb: 300, offline: false,
 };
-const BOOL = new Set(['mobile', 'hover', 'interactions', 'robots', 'subdomains', 'sitemap', 'cookies', 'headful', 'llm', 'verbose', 'help', 'assets', 'ignoreRobots', 'version', 'html']);
-const NUM = new Set(['depth', 'maxPages', 'perTemplate', 'concurrency', 'delay', 'timeout', 'maxNodes', 'maxAssets', 'maxAssetMb', 'maxImages']);
+const BOOL = new Set(['mobile', 'hover', 'interactions', 'robots', 'subdomains', 'sitemap', 'cookies', 'headful', 'llm', 'verbose', 'help', 'assets', 'ignoreRobots', 'version', 'html', 'zip', 'api', 'redact', 'snapshot', 'blockTrackers', 'verify', 'visual', 'build', 'catalogTools', 'strict', 'offline', 'keepIncoming']);
+const NUM = new Set(['depth', 'maxPages', 'perTemplate', 'concurrency', 'delay', 'timeout', 'maxNodes', 'maxAssets', 'maxAssetMb', 'maxImages', 'maxMocks', 'healIterations', 'threshold', 'minSimilarity', 'port', 'assetRetries', 'assetConcurrency', 'maxUploadMb']);
 const ALIASES = { d: 'depth', p: 'maxPages', o: 'out', m: 'model', h: 'help', v: 'verbose' };
 
 export function parseArgs(argv) {
@@ -75,7 +80,7 @@ export function parseSize(s, fallback) {
 
 export function resolveLLM(opts) {
   const env = process.env;
-  const provider = String(opts.provider || env.LLM_PROVIDER || 'river').toLowerCase();
+  const provider = String(opts.provider || env.LLM_PROVIDER || 'zai').toLowerCase();
   const preset = PROVIDERS[provider] || PROVIDERS.custom;
   const apiKey = opts.apiKey || env.LLM_API_KEY || (preset.keyEnv || []).map((k) => env[k]).find(Boolean) || '';
   const baseUrl = String(opts.baseUrl || env.LLM_BASE_URL || preset.baseUrl || '').replace(/\/+$/, '');
@@ -109,11 +114,15 @@ export function resolveLLM(opts) {
 }
 
 export const HELP = `
-site-blueprint — URL → Playwright → дизайн-система → LLM → SITE_CLONE_BLUEPRINT.md
+site-blueprint 2 — сайт (URL или захват расширения) → дизайн-система → Next.js-проект → LLM → SITE_CLONE_BLUEPRINT.md → самопроверка
 
-Использование:
-  node bin/site-blueprint.mjs <url> [опции]
-  npm start                       (спросит ссылку)
+Команды:
+  site-blueprint <url> [опции]           обойти сайт (Playwright) и собрать всё; npm start — спросит ссылку
+  site-blueprint --from <папка>          пересобрать из прошлого запуска (без обхода)
+  site-blueprint import <capture.zip>    захват из браузерного расширения (ZIP или распакованная папка)
+  site-blueprint listen [--port 3005]    приёмник для расширения («Отправить в локальный CLI»), только 127.0.0.1
+  site-blueprint heal <папка>            собрать project/ и исправить ошибки сборки (правила + LLM-патчи), без обхода
+  site-blueprint verify <папка> --url http://localhost:3000   сверить запущенный клон с оригиналом
 
 Обход:
   -d, --depth <n>          глубина обхода ссылок (по умолч. 2)
@@ -122,27 +131,61 @@ site-blueprint — URL → Playwright → дизайн-система → LLM �
   --concurrency <n>        параллельных страниц (2)
   --viewport 1440x900      десктоп-вьюпорт; --mobile-viewport 390x844
   --no-mobile              без мобильного прохода
-  --no-hover / --no-interactions   без пробы hover / вкладок / аккордеонов
+  --no-hover / --no-interactions   без пробы hover / вкладок / аккордеонов / модалок
   --no-assets              не скачивать картинки и шрифты
   --ignore-robots          игнорировать robots.txt (только для своих сайтов)
   --subdomains             разрешить поддомены
   --locale ru-RU           язык браузера
   --headful                показать окно браузера
+  --browser-path <exe>     свой Chrome/Chromium (или BROWSER_PATH в .env); --channel chrome|msedge
   --delay <ms> (300), --timeout <ms> (45000), --max-nodes <n> (4000)
-  --max-assets <n> (400), --max-asset-mb <n> (15)
+  --max-assets <n> (400), --max-asset-mb <n> (15), --asset-retries <n> (3)
   --no-sitemap / --no-cookies / --no-html
+  --no-block-trackers      не блокировать трекеры при обходе (по умолч. блокируются; в клон они не попадают никогда)
+  --plugin <file.mjs,…>    плагины-хуки: beforeStart, beforeRequest, afterResponse, beforeExtract, afterExtract,
+                           generateFilename, onAssetSaved, onAssetError, beforeWrite, afterProject, afterFinish, error
+                           (пример: examples/plugin-example.mjs); также SB_PLUGINS в .env
+
+Захват данных:
+  --no-api                 не записывать XHR/fetch-ответы и не создавать мок-API (app/api/[...route])
+  --max-mocks <n>          лимит мок-ответов (250)
+  --no-redact              не маскировать токены и персональные данные в моках (только для своих тестовых данных!)
+  --no-snapshot            без автономных HTML-снимков snapshots/*.html
+  --no-catalog-tools       без панели поиска/сортировки в сгенерированном каталоге
 
 LLM (OpenAI-совместимый API, настраивается в .env):
-  --provider river|zai|zai-coding|zhipu|gemini|deepseek|openrouter|openai|ollama|custom
-  -m, --model <id>         напр. deepseek-ai/DeepSeek-V4.1-Flash-1017 или glm-5.3-flash
+  --provider zai|zai-coding|zhipu|gemini|deepseek|openrouter|openai|ollama|custom
+                           любой другой сервис (в т.ч. River AI, vLLM, LM Studio, прокси) — custom + --base-url
+  -m, --model <id>         напр. glm-5.3-flash
   --base-url <url>, --api-key <key>   обычно задаются в .env (LLM_BASE_URL, LLM_API_KEY)
   --vision on|off|auto     отправлять ли скриншоты в модель
   --max-images <n>         скриншотов на страницу (6)
-  --no-llm                 только детерминированный блюпринт, без нейросети
+  --no-llm                 без нейросети: детерминированный блюпринт, исправления сборки только правилами
+
+Самопроверка после генерации (включена по умолчанию):
+  --no-verify              не собирать project/
+  --deps shared|local|skip node_modules: общие рядом с результатами (shared), в project/ (local), не ставить (skip)
+  --heal-iterations <n>    итераций «next build → исправления» (4)
+  --no-visual              без next start и визуальной регрессии (pixelmatch)
+  --threshold <0..1>       чувствительность сравнения пикселей (0.1)
+  --min-similarity <0..1>  порог сходства для отчёта (0.85)
+  --strict                 код выхода 3, если сборка не прошла или сходство ниже порога
+
+Расширение (listen / import):
+  --port <n>               порт listen (3005)
+  --token <строка>         общий секрет, расширение присылает его в X-SB-Token (или SB_LISTEN_TOKEN в .env)
+  --max-upload-mb <n>      лимит размера захвата (300)
+  --allow-origin <origin>  дополнительно разрешённый Origin (по умолч. только chrome-extension:// и moz-extension://)
+  --keep-incoming          не удалять принятые ZIP из <out>/_incoming
+  --offline                не докачивать ассеты, которых нет в захвате
 
 Вывод:
   -o, --out <dir>          папка результатов (output)
   --lang ru|en             язык ответов LLM (ru)
-  --from <dir>             пересобрать блюпринт из уже собранных данных (без обхода)
-  -v, --verbose            подробный лог
+  --no-zip                 не собирать архив <папка>.zip для ИИ-кодера
+  -v, --verbose            подробный лог;  --version — версия
+
+Сверка запущенного клона (verify):
+  --url <адрес клона>      по умолч. http://localhost:3000
+  --routes /,/pricing      только эти маршруты; --no-mobile — только десктоп
 `;

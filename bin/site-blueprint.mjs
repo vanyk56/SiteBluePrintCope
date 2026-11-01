@@ -7,9 +7,8 @@ if (major < 20 || (major === 20 && minor < 12)) {
 }
 const { main } = await import('../src/cli.mjs');
 try {
-  const code = await main(process.argv.slice(2));
-  process.exit(code ?? 0);
+  process.exitCode = await main(process.argv.slice(2));
 } catch (e) {
   console.error('\n✖ ' + ((e && e.stack) || e));
-  process.exit(1);
+  process.exitCode = 1;
 }

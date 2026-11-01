@@ -23,28 +23,84 @@ export async function dismissCookies(page) {
   } catch { return ''; }
 }
 
-export async function autoScroll(page, maxSteps = 60) {
+// Lazy images: native loading="lazy" -> eager, data-src / data-srcset -> src / srcset (JS lazy loaders).
+export async function forceLazy(page) {
   try {
-    await page.evaluate(async (maxSteps) => {
+    return await page.evaluate(() => {
+      let n = 0;
+      const PH = /(placeholder|blank|spacer|transparent)[^/]*\.(gif|png|svg)(\?|$)/i;
+      for (const img of document.querySelectorAll('img')) {
+        if (img.loading === 'lazy') { img.loading = 'eager'; n++; }
+        for (const [from, to] of [['data-src', 'src'], ['data-lazy-src', 'src'], ['data-original', 'src'], ['data-srcset', 'srcset'], ['data-lazy-srcset', 'srcset']]) {
+          const v = img.getAttribute(from); const cur = img.getAttribute(to);
+          if (v && v !== cur && (!cur || cur.startsWith('data:') || PH.test(cur))) { img.setAttribute(to, v); n++; }
+        }
+      }
+      for (const s of document.querySelectorAll('source[data-srcset]')) if (!s.getAttribute('srcset')) { s.setAttribute('srcset', s.getAttribute('data-srcset')); n++; }
+      return n;
+    });
+  } catch { return 0; }
+}
+
+// Scrolls the page in steps; at every step waits (briefly) for images that are loading in/near the viewport.
+export async function autoScroll(page, { maxSteps = 90, budgetMs = 25000 } = {}) {
+  try {
+    await page.evaluate(async ({ maxSteps, budgetMs }) => {
+      const t0 = Date.now();
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const H = () => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-      const step = Math.max(300, Math.round(innerHeight * 0.85));
-      let y = 0, n = 0;
+      const step = Math.max(300, Math.round(innerHeight * 0.7));
       const to = (top) => window.scrollTo({ top, left: 0, behavior: 'instant' });
-      while (y < H() && n < maxSteps) { y += step; to(y); await new Promise((r) => setTimeout(r, 110)); n++; }
-      await new Promise((r) => setTimeout(r, 250));
+      const loadingNear = () => [...document.images].filter((i) => { if (i.complete) return false; const r = i.getBoundingClientRect(); return r.width > 0 && r.bottom > -300 && r.top < innerHeight + 600; });
+      let y = 0, n = 0;
+      while (y < H() && n < maxSteps && Date.now() - t0 < budgetMs) {
+        y += step; to(y); n++;
+        await sleep(120);
+        const p = loadingNear();
+        if (p.length) await Promise.race([Promise.all(p.map((i) => new Promise((r) => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); }))), sleep(900)]);
+      }
+      await sleep(250);
       to(0);
-      await new Promise((r) => setTimeout(r, 350));
-      if (window.scrollY !== 0) { document.documentElement.style.scrollBehavior = 'auto'; to(0); await new Promise((r) => setTimeout(r, 200)); }
-    }, maxSteps);
+      await sleep(350);
+      if (window.scrollY !== 0) { document.documentElement.style.scrollBehavior = 'auto'; to(0); await sleep(200); }
+    }, { maxSteps, budgetMs });
   } catch {}
 }
 
-export async function waitAssets(page, ms = 5000) {
+// Finite CSS transitions / animations (scroll-reveal, entrance effects) jump to their end state, so styles are captured
+// settled instead of mid-fade (opacity 0.9, translate-y 2px on the first row of cards).
+export async function finishAnimations(page) {
+  try {
+    return await page.evaluate(async () => {
+      let n = 0;
+      for (const a of document.getAnimations ? document.getAnimations() : []) {
+        try {
+          if (a.playState === 'finished') continue;
+          const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+          if (!t || !Number.isFinite(t.endTime) || t.endTime > 60000) continue;
+          a.finish(); n++;
+        } catch (e) {}
+      }
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return n;
+    });
+  } catch { return 0; }
+}
+
+// Waits for fonts and for images that are still loading — while they keep finishing (stops after 3 s without progress).
+export async function waitAssets(page, ms = 12000) {
   try {
     await page.evaluate(async (ms) => {
-      const imgs = [...document.images].filter((i) => !i.complete);
+      const t0 = Date.now(); const sleep = (x) => new Promise((r) => setTimeout(r, x));
       const fonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
-      await Promise.race([Promise.all([fonts, ...imgs.map((i) => new Promise((r) => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); }))]), new Promise((r) => setTimeout(r, ms))]);
+      await Promise.race([fonts, sleep(Math.min(ms, 4000))]);
+      let last = -1, stall = 0;
+      while (Date.now() - t0 < ms) {
+        const left = [...document.images].filter((i) => !i.complete).length;
+        if (!left) break;
+        if (left === last) { stall += 250; if (stall >= 3000) break; } else { stall = 0; last = left; }
+        await sleep(250);
+      }
     }, ms);
   } catch {}
 }
@@ -135,7 +191,7 @@ function diffState(a, b) { const d = {}; if (!a || !b) return d; for (const k of
 export async function probeHover(page, interactive, { max = 36, budgetMs = 15000, skip = null } = {}) {
   const t0 = Date.now(); const out = [];
   const seen = new Set();
-  const uniq = interactive.filter((x) => x.kind === 'link' || x.kind === 'button')
+  const uniq = interactive.filter((x) => x.kind === 'link' || x.kind === 'button' || x.kind === 'tab')
     .filter((x) => { if (seen.has(x.sig) || (skip && skip.has(x.sig))) return false; seen.add(x.sig); return true; });
   // round-robin over areas so that the footer is not starved by a long header/main
   const byArea = new Map(); for (const x of uniq) { const a = x.area === 'nav' ? 'header' : x.area; if (!byArea.has(a)) byArea.set(a, []); byArea.get(a).push(x); }
@@ -219,23 +275,40 @@ async function guardedClick(page, id, startUrl) {
   return true;
 }
 
-export async function probeInteractions(page, interactive, { budgetMs = 15000 } = {}) {
-  const t0 = Date.now(); const res = { tabs: [], expand: [], details: [] };
+export async function probeInteractions(page, interactive, { budgetMs = 25000 } = {}) {
+  const t0 = Date.now(); const res = { tabs: [], tabGroups: [], expand: [], details: [] };
   const startUrl = page.url();
   page.on('popup', (p) => p.close().catch(() => {}));
-  // tabs
-  const tabs = interactive.filter((x) => x.kind === 'tab');
-  const seenTab = new Set();
-  for (const t of tabs.slice(0, 16)) {
-    if (Date.now() - t0 > budgetMs) break;
-    const key = t.text; if (seenTab.has(key)) continue; seenTab.add(key);
-    try {
-      if (!(await guardedClick(page, t.id, startUrl))) return res;
-      const p = await page.evaluate((id) => window.__sb.tabPanel(id), t.id);
-      if (p && p.text) res.tabs.push({ id: t.id, label: p.label || t.text, text: p.text });
-    } catch (e) { log.debug('tab', t.id, String(e.message).split('\n')[0]); }
+  // tab groups (role="tab" and rows of buttons with one active): click each tab and diff the main area.
+  // Content tabs -> the text that appears; filters (category tabs over a grid) -> which item headings stay visible.
+  const groups = new Map();
+  for (const t of interactive.filter((x) => x.kind === 'tab')) { const g = t.group || 'g0'; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(t); }
+  let gn = 0;
+  for (const [g, tabs] of groups) {
+    if (++gn > 6 || Date.now() - t0 > budgetMs) break;
+    const ids = tabs.map((t) => t.id);
+    const region = () => page.evaluate((ids) => window.__sb.region(ids), ids).catch(() => null);
+    const base = await region();
+    if (!base) continue;
+    const baseSet = new Set(base.lines);
+    const active = tabs.find((t) => t.active) || tabs[0];
+    const rec = { group: g, labels: tabs.map((t) => t.text), active: active.text, heuristic: !!active.heur, baseHeads: base.heads.slice(0, 300), items: [] };
+    for (const t of tabs.slice(0, 16)) {
+      if (Date.now() - t0 > budgetMs) break;
+      try {
+        if (t !== active) { if (!(await guardedClick(page, t.id, startUrl))) return res; await sleep(260); }
+        const p = await page.evaluate((id) => window.__sb.tabPanel(id), t.id).catch(() => null);
+        const snap = t === active ? base : await region();
+        if (!snap) continue;
+        const now = new Set(snap.lines);
+        const added = snap.lines.filter((l) => !baseSet.has(l));
+        const removed = base.lines.filter((l) => !now.has(l)).length;
+        rec.items.push({ id: t.id, label: (p && p.label) || t.text, active: t === active, panel: p && p.text ? p.text.slice(0, 4000) : '', added: added.join('\n').slice(0, 5000), addedLines: added.length, removed, heads: snap.heads.slice(0, 300) });
+      } catch (e) { log.debug('tab', t.id, String(e.message).split('\n')[0]); }
+    }
+    if (active) { try { await page.locator(`[data-sb-id="${active.id}"]`).first().click({ timeout: 1500, force: true }); await sleep(200); } catch {} }
+    if (rec.items.some((x) => !x.active && (x.addedLines || x.removed || x.panel))) res.tabGroups.push(rec);
   }
-  if (tabs.length) { try { await page.locator(`[data-sb-id="${tabs[0].id}"]`).first().click({ timeout: 1500, force: true }); } catch {} }
   // aria-expanded accordions / dropdowns
   for (const x of interactive.filter((i) => i.kind === 'expand' && i.expanded === 'false').slice(0, 24)) {
     if (Date.now() - t0 > budgetMs) break;
@@ -251,17 +324,101 @@ export async function probeInteractions(page, interactive, { budgetMs = 15000 } 
   return res;
 }
 
+// Buttons that open overlays (cart drawer, modal, popup): click, diff visible overlays, screenshot, close.
+const DANGER = /удал|delete|remove|выйти|выход|log ?out|sign ?out|оплат|\bpay\b|buy|купить|заказать|оформить|checkout|подписаться|subscribe|отправить|\bsend\b|submit|сохранить|\bsave\b/i;
+const LIKELY = /корзин|cart|bag|меню|menu|фильтр|filter|поиск|search|вайп|wipe|расписан|schedule|подробн|details|info|инфо|войти|login|sign ?in|контакт|contact|заявк|call|видео|video|play|галере|gallery|share|подел/i;
+export async function probeDialogs(page, interactive, dir, slug, { max = 8, budgetMs = 20000, skip = null } = {}) {
+  const t0 = Date.now(); const out = [];
+  const startUrl = page.url();
+  const sigCount = new Map(); for (const x of interactive) sigCount.set(x.sig, (sigCount.get(x.sig) || 0) + 1);
+  const seen = new Set();
+  const cands = interactive
+    .filter((x) => (x.kind === 'button' || x.kind === 'expand') && x.tag !== 'input' && x.area !== 'footer' && (sigCount.get(x.sig) || 0) <= 2 && !DANGER.test(x.text || ''))
+    .filter((x) => { const k = x.sig + '|' + x.text; if (seen.has(k) || (skip && skip.has(k))) return false; seen.add(k); return true; })
+    .sort((a, b) => (LIKELY.test(b.text || '') ? 1 : 0) - (LIKELY.test(a.text || '') ? 1 : 0))
+    .slice(0, max);
+  let n = 0;
+  for (const it of cands) {
+    if (Date.now() - t0 > budgetMs) break;
+    if (skip) skip.add(it.sig + '|' + it.text);
+    try {
+      const before = await page.evaluate(() => window.__sb.overlays()).catch(() => null);
+      if (!before) break;
+      const was = new Set(before.map((o) => o.id));
+      if (!(await guardedClick(page, it.id, startUrl))) break; // navigated away: in-page helpers are gone
+      await sleep(450);
+      const after = await page.evaluate(() => window.__sb.overlays()).catch(() => []);
+      const fresh = after.filter((o) => !was.has(o.id));
+      if (fresh.length) {
+        const vp = page.viewportSize() || { width: 1440, height: 900 };
+        const backdrop = fresh.find((o) => !o.text && o.rect[2] >= vp.width * 0.9 && o.rect[3] >= vp.height * 0.9);
+        const main = fresh.filter((o) => o !== backdrop && (o.text || o.panel));
+        if (main.length) {
+          const file = path.join(dir, `${slug}-dialog-${++n}.png`);
+          await ensureDir(dir);
+          await page.screenshot({ path: file, animations: 'disabled' }).catch(() => {});
+          out.push({ trigger: it.text, triggerId: it.id, area: it.area, screenshot: file, backdrop: backdrop ? { bg: backdrop.bg, blur: backdrop.blur } : null, overlays: main.slice(0, 2) });
+        }
+      }
+      if (fresh.length) {
+        await page.keyboard.press('Escape').catch(() => {});
+        await sleep(300);
+        let still = (await page.evaluate(() => window.__sb.overlays()).catch(() => [])).filter((o) => !was.has(o.id));
+        if (still.length) {
+          await page.evaluate((ids) => {
+            for (const id of ids) {
+              const el = document.querySelector('[data-sb-ov="' + id + '"]'); if (!el) continue;
+              const b = [...el.querySelectorAll('button, [role="button"], a')].find((x) => /close|закры|отмен|cancel|^\s*[×✕✖x]\s*$/i.test((x.getAttribute('aria-label') || '') + ' ' + (x.getAttribute('title') || '') + ' ' + (x.innerText || '')));
+              if (b) b.click();
+            }
+          }, still.map((o) => o.id)).catch(() => {});
+          await sleep(300);
+          still = (await page.evaluate(() => window.__sb.overlays()).catch(() => [])).filter((o) => !was.has(o.id));
+        }
+        if (still.length) { await page.mouse.click(5, 5).catch(() => {}); await sleep(300); still = (await page.evaluate(() => window.__sb.overlays()).catch(() => [])).filter((o) => !was.has(o.id)); }
+        if (still.length) break; // could not close — stop here rather than probe a covered page
+      }
+    } catch (e) { log.debug('dialog', it.id, String(e.message).split('\n')[0]); }
+  }
+  return out;
+}
+
+// canvas / WebGL: element screenshot with everything else hidden -> static fallback image for the clone
+export async function snapshotCanvases(page, media, fileFor, { max = 4 } = {}) {
+  const out = [];
+  const list = (media || []).map((m, i) => ({ m, i })).filter(({ m }) => m.type === 'canvas' && m.w >= 80 && m.h >= 40).slice(0, max);
+  for (const { i } of list) {
+    try {
+      await page.evaluate((i) => {
+        const el = document.querySelector('[data-sb-media="' + i + '"]'); if (!el) return;
+        const st = document.createElement('style'); st.id = '__sb_cv';
+        st.textContent = 'html,body{background:transparent!important}*{visibility:hidden!important}[data-sb-media="' + i + '"]{visibility:visible!important}';
+        document.head.appendChild(st);
+      }, i);
+      await sleep(120);
+      const file = fileFor(i);
+      await ensureDir(path.dirname(file));
+      await page.locator(`[data-sb-media="${i}"]`).first().screenshot({ path: file, omitBackground: true, timeout: 8000 });
+      out.push({ index: i, file });
+    } catch (e) { log.debug('canvas', i, String(e.message).split('\n')[0]); }
+    finally { await page.evaluate(() => { const st = document.getElementById('__sb_cv'); if (st) st.remove(); }).catch(() => {}); }
+  }
+  return out;
+}
+
 export async function probeBurger(page, file) {
   try {
     const id = await page.evaluate(() => window.__sb && window.__sb.findBurger());
     if (!id) return null;
     const startUrl = page.url();
+    const before = await page.evaluate(() => window.__sb.visibleLinks()).catch(() => []);
     await page.locator(`[data-sb-id="${id}"]`).first().click({ timeout: 2000, force: true });
     await sleep(600);
     if (page.url().split('#')[0] !== startUrl.split('#')[0]) { try { await page.goBack(); } catch {} return null; }
     await ensureDir(path.dirname(file));
     await page.screenshot({ path: file, animations: 'disabled' });
     const text = await page.evaluate(() => window.__sb.menuText());
-    return { id, screenshot: file, text };
+    const menu = await page.evaluate((b) => window.__sb.menuLinks(b), before).catch(() => null);
+    return { id, screenshot: file, text, links: (menu && menu.links) || [], style: (menu && menu.style) || null };
   } catch (e) { log.debug('burger', String(e.message).split('\n')[0]); return null; }
 }

@@ -2,18 +2,10 @@ import fs from 'node:fs';
 import { chromium } from 'playwright';
 import { log } from './log.mjs';
 
-// Trackers, ad networks, chat widgets and cookie-consent SDKs — blocked at network level.
-const BLOCK_HOSTS = [
-  'google-analytics.com', 'googletagmanager.com', 'analytics.google.com', 'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
-  'connect.facebook.net', 'facebook.com/tr', 'mc.yandex.ru', 'mc.yandex.com', 'mc.webvisor', 'top-fwz1.mail.ru', 'vk.com/rtrg', 'an.yandex.ru', 'adfox.ru',
-  'hotjar.com', 'clarity.ms', 'segment.io', 'cdn.segment.com', 'mixpanel.com', 'amplitude.com', 'fullstory.com', 'heapanalytics.com', 'heap.io',
-  'intercom.io', 'intercomcdn.com', 'crisp.chat', 'tawk.to', 'jivosite.com', 'code.jivo.ru', 'livechatinc.com', 'js.driftt.com', 'zdassets.com', 'carrotquest',
-  'snap.licdn.com', 'ads.linkedin.com', 'analytics.tiktok.com', 'static.ads-twitter.com', 'criteo.', 'taboola.com', 'outbrain.com', 'quantserve.com', 'scorecardresearch.com',
-  'cdn.cookielaw.org', 'onetrust.com', 'cookiebot.com', 'usercentrics.eu', 'cookieyes.com', 'termly.io', 'iubenda.com', 'trustarc.com', 'consentmanager.net',
-  'js-agent.newrelic.com', 'nr-data.net', 'browser.sentry-cdn.com', 'sentry.io/api', 'bugsnag.com', 'datadoghq-browser-agent', 'js.hs-analytics.net', 'js.hs-scripts.com',
-  'plausible.io/js', 'posthog.com', 'matomo.', 'piwik.', 'yandex.ru/metrika', 'roistat', 'calltouch', 'comagic',
-];
-export const BLOCK_RE = new RegExp(BLOCK_HOSTS.map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'i');
+// Trackers, ad networks, chat widgets and cookie-consent SDKs are blocked at network level (list: sanitize/trackers.mjs).
+import { BLOCK_RE } from './sanitize/trackers.mjs';
+import { installHooks } from './inpage/hooks.mjs';
+export { BLOCK_RE };
 
 const SYSTEM_BROWSERS = [
   '/usr/local/bin/chromium', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/snap/bin/chromium',
@@ -40,7 +32,7 @@ export async function launchBrowser(opts) {
   }
 }
 
-export async function newContext(browser, { width, height, mobile, locale }) {
+export async function newContext(browser, { width, height, mobile, locale, hooks = null, blockTrackers = true, onBlocked = null, initHooks = true }) {
   const ctx = await browser.newContext({
     viewport: { width, height },
     deviceScaleFactor: mobile ? 2 : 1,
@@ -51,6 +43,19 @@ export async function newContext(browser, { width, height, mobile, locale }) {
     ignoreHTTPSErrors: true,
     locale: locale || undefined,
   });
-  await ctx.route(BLOCK_RE, (route) => route.abort().catch(() => {}));
+  // observation hooks (closed shadow roots, WebGL buffer, JS FontFace) — see inpage/hooks.mjs
+  if (initHooks) await ctx.addInitScript(installHooks);
+  // plugins may veto or decorate requests (website-scraper "beforeRequest" action); registered first so the
+  // tracker block below (registered later = consulted first by Playwright) still wins
+  if (hooks && hooks.has('beforeRequest')) {
+    await ctx.route('**/*', async (route) => {
+      const req = route.request();
+      const r = await hooks.first('beforeRequest', { url: req.url(), method: req.method(), resourceType: req.resourceType(), headers: req.headers() });
+      if (r && r.abort) return route.abort().catch(() => {});
+      if (r && r.headers) return route.continue({ headers: { ...req.headers(), ...r.headers } }).catch(() => {});
+      return route.fallback().catch(() => {});
+    });
+  }
+  if (blockTrackers) await ctx.route(BLOCK_RE, (route) => { try { if (onBlocked) onBlocked(route.request().url()); } catch {} return route.abort().catch(() => {}); });
   return ctx;
 }

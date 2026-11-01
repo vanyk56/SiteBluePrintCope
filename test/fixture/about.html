@@ -29,7 +29,25 @@
 <p>Nimbus основан в 2019 году инженерами, уставшими от бесконечной настройки инфраструктуры. Сегодня нас 120 человек в 9 странах.</p></div></section>
 <section class="section"><div class="container"><div class="section-head"><h2>Команда</h2></div><div class="team-grid">
 <div class="member"><img src="/img/team-1.jpg" alt="Алексей Орлов"><h3>Алексей Орлов</h3><p>CEO</p></div><div class="member"><img src="/img/team-2.jpg" alt="Елена Волкова"><h3>Елена Волкова</h3><p>CTO</p></div><div class="member"><img src="/img/team-3.jpg" alt="Дмитрий Ли"><h3>Дмитрий Ли</h3><p>VP Engineering</p></div><div class="member"><img src="/img/team-4.jpg" alt="Ольга Новикова"><h3>Ольга Новикова</h3><p>Head of Design</p></div>
-</div></div></section></main>
+</div></div></section>
+<section class="section lab"><div class="container"><div class="section-head"><h2>Лаборатория</h2><p>Shadow DOM, CSS-in-JS, FontFace API и WebGL.</p></div>
+<div class="lab-row"><nb-badge label="Open Shadow DOM"></nb-badge> <nb-secret></nb-secret></div>
+<p class="js-styled">Стиль из CSS-in-JS (insertRule)</p>
+<p class="js-font">Шрифт подключён через FontFace API</p>
+<p class="js-adopted">Стиль из adoptedStyleSheets</p>
+<p class="js-font-buf">Шрифт из ArrayBuffer</p>
+<canvas id="gl" width="320" height="120"></canvas>
+<img src="/img/team-1.jpg?v=2&amp;w=640" alt="Дубликат фото команды" width="80" height="80">
+</div></section>
+<script>
+customElements.define('nb-badge', class extends HTMLElement { connectedCallback() { if (this.shadowRoot) return; var r = this.attachShadow({ mode: 'open' }); r.innerHTML = '<style>span{display:inline-block;padding:6px 12px;border-radius:999px;background:#6d28d9;color:#fff;font:600 14px system-ui}</style><span>' + this.getAttribute('label') + '</span>'; } });
+customElements.define('nb-secret', class extends HTMLElement { connectedCallback() { if (this._r) return; this._r = this.attachShadow({ mode: 'closed' }); this._r.innerHTML = '<style>b{color:#0e7490}</style><b>Closed shadow root content</b>'; } });
+(function () { var st = document.createElement('style'); document.head.appendChild(st); st.sheet.insertRule('.js-styled{color:#be185d;font-weight:700;letter-spacing:.02em}', 0); })();
+(function () { if (!('adoptedStyleSheets' in document)) return; var sh = new CSSStyleSheet(); sh.replaceSync('.js-adopted{color:#15803d;text-decoration:underline}'); document.adoptedStyleSheets = document.adoptedStyleSheets.concat([sh]); })();
+(function () { fetch('/fonts/shop-sans-latin.ttf').then(function (r) { return r.arrayBuffer(); }).then(function (buf) { var ff = new FontFace('Lab Mono', buf, { weight: '400' }); return ff.load(); }).then(function (f) { document.fonts.add(f); document.querySelector('.js-font-buf').style.fontFamily = '"Lab Mono", monospace'; }).catch(function () {}); })();
+(function () { var ff = new FontFace('Lab Sans', 'url(/fonts/shop-sans-latin.ttf)'); ff.load().then(function (f) { document.fonts.add(f); document.querySelector('.js-font').style.fontFamily = '"Lab Sans", sans-serif'; }); })();
+(function () { var c = document.getElementById('gl'); var gl = c.getContext('webgl') || c.getContext('experimental-webgl'); if (gl) { gl.clearColor(0.43, 0.16, 0.85, 1); gl.clear(gl.COLOR_BUFFER_BIT); } })();
+</script></main>
 <footer class="site-footer">
   <div class="container">
     <div class="footer-grid">

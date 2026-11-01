@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "site-blueprint — клон страницы для ИИ-кодера",
+  "short_name": "site-blueprint",
+  "version": "2.0.0",
+  "description": "Захват живой страницы или сайта (DOM со стилями, ассеты, API-ответы, интерактивный стейт) для site-blueprint CLI.",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "site-blueprint: клонировать страницу",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "webRequest",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
+  ]
+}
