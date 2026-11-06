@@ -7,7 +7,8 @@ function styleObj(css) {
     const key = k.startsWith('--') ? JSON.stringify(k) : k.replace(/^-ms-/, 'ms-').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     return `${key}: ${JSON.stringify(v)}`;
   }).filter(Boolean);
-  return `{ ${pairs.join(', ')} }`;
+  const hasCustom = pairs.some((p) => p.startsWith('"--'));
+  return `{ ${pairs.join(', ')} }${hasCustom ? ' as Record<string, any>' : ''}`;
 }
 export function prefixIds(markup, prefix) {
   const ids = [...markup.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
