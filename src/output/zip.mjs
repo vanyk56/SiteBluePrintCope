@@ -26,7 +26,8 @@ export async function bundle(outDir) {
     }
   }
 
-  await walk(outDir);
+  const baseName = path.basename(outDir);
+  await walk(outDir, baseName);
   const bytes = zip.finishBytes();
   const file = path.resolve(outDir + '.zip');
   await fsp.writeFile(file, bytes);

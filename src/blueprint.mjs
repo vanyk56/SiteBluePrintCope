@@ -357,7 +357,11 @@ export async function writeBlueprint(site, outDir, { llm = null, llmInfo = {}, p
       if (/sticky|fixed/.test(c.code.slice(0, 400))) notes.push(/sticky/.test(c.code.slice(0, 400)) ? 'sticky' : 'fixed');
       S.push(`- **${c.name}:** ${notes.join(' · ') || '—'}`);
     }
-    const waapi = site.pages.flatMap((p) => (p.raw.animations || []).map((a) => ({ ...a, route: p.route })));
+    const waapi = site.pages.flatMap((p) => {
+      const anims = p.raw.animations;
+      const list = Array.isArray(anims) ? anims : (anims && Array.isArray(anims.webAnimations) ? anims.webAnimations : []);
+      return list.map((a) => ({ ...a, route: p.route }));
+    });
     if (waapi.length) {
       S.push('', '### 8.1 Web Animations API / Keyframes (зафиксированы в браузере)', '');
       const seenWa = new Set();

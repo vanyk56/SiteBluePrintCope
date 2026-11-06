@@ -70,14 +70,15 @@ export function buildGlobalsCss(site) {
 
   lines.push('}', '');
 
-  // 4. Base body styles
   const bodyFont = t.fonts && t.fonts.body && t.fonts.body.family;
   const fg = (t.roles && t.roles.foreground) || '#111111';
   const bg = t.pageBg || (t.roles && t.roles.background) || '#ffffff';
   lines.push('body {');
   lines.push(`  background-color: ${bg};`);
   lines.push(`  color: ${fg};`);
-  if (bodyFont) {
+  if (bodyFont && t.fontMap && t.fontMap[bodyFont]) {
+    lines.push(`  font-family: var(--font-${t.fontMap[bodyFont]});`);
+  } else if (bodyFont) {
     const stack = (t.fonts.body && t.fonts.body.stack) || `"${bodyFont}", sans-serif`;
     lines.push(`  font-family: ${stack};`);
   }

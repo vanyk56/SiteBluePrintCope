@@ -1066,7 +1066,9 @@
       },
     };
   
-    const webAnims = [...(window.__sbCapturedAnims || []), ...(window.__sbWebAnims || [])].slice(0, 120);
+    const webAnimsRaw = typeof window.__sbWebAnims === 'function' ? window.__sbWebAnims() : (Array.isArray(window.__sbWebAnims) ? window.__sbWebAnims : []);
+    const capturedRaw = Array.isArray(window.__sbCapturedAnims) ? window.__sbCapturedAnims : [];
+    const webAnims = [...capturedRaw, ...webAnimsRaw].slice(0, 120);
     const revealNodes = [];
     for (const [, n] of elNode) {
       if (n.rev && revealNodes.length < 120) revealNodes.push({ id: n.i, tag: n.t, ...n.rev });
