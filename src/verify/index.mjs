@@ -235,6 +235,11 @@ export async function verify(dir, opts = {}) {
   console.log('\n' + color.green(color.bold('Сверка готова')) + `: ${path.relative(process.cwd(), path.join(vDir, 'report.md')) || 'verify/report.md'}`);
   if (worst && worst.visual !== undefined) console.log(color.dim(`  сильнее всего отличается ${worst.route} (${worst.view}): ${(worst.visual * 100).toFixed(1)}% — см. ${worst.compare}`));
   console.log(color.dim('  Отдай verify/report.md и картинки *-compare.png ИИ-кодеру: «исправь расхождения из отчёта».\n'));
+  const minSim = opts.failUnder !== undefined ? Number(opts.failUnder) : (opts.strict ? Number(opts.minSimilarity ?? 0.85) : null);
+  if (minSim !== null && !Number.isNaN(minSim) && worst && worst.visual !== undefined && (1 - worst.visual) < minSim) {
+    log.error(`Сходство ${(100 * (1 - worst.visual)).toFixed(1)}% ниже порога ${(minSim * 100).toFixed(1)}% (${worst.route} · ${worst.view})`);
+    return 3;
+  }
   return 0;
 }
 

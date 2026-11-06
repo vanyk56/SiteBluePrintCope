@@ -404,8 +404,15 @@ export function createSkeleton(ctx) {
       const parts = entries.map((e) => (e.text !== undefined ? slotText(sub, e.text, N.t === 'summary' ? 'question' : '') : renderEntry(e, childMode(e, mode), '', sub, { parentDisplay: disp })));
       const body = parts.join('');
       st.sh.used += body.length;
-      if (!extra.length) return `${ind}${open}>${body}</${tag}>`;
-      return `${ind}${open}>\n${ind}  ${body}\n${extra.join('\n')}\n${ind}</${tag}>`;
+      const res = !extra.length ? `${ind}${open}>${body}</${tag}>` : `${ind}${open}>\n${ind}  ${body}\n${extra.join('\n')}\n${ind}</${tag}>`;
+      if (N.rev && !fl.isRoot && !st.slots) {
+        st.sh.client.add('AnimateOnScroll');
+        const p = N.rev.preset && N.rev.preset !== 'fade-up' ? ` preset="${N.rev.preset}"` : '';
+        const d = N.rev.durationMs && N.rev.durationMs !== 650 ? ` durationMs={${N.rev.durationMs}}` : '';
+        const dl = N.rev.delayMs ? ` delayMs={${N.rev.delayMs}}` : '';
+        return `${ind}<AnimateOnScroll${p}${d}${dl}>\n${res.replace(/^/gm, '  ')}\n${ind}</AnimateOnScroll>`;
+      }
+      return res;
     }
     const lines = [];
     const rep = !isMob && !st.slots ? st.sh.repeats.get(N.i) : null;
@@ -439,7 +446,15 @@ export function createSkeleton(ctx) {
     }
     lines.push(...extra);
     if (!lines.length) return `${ind}${open} />`;
-    return `${ind}${open}>\n${lines.join('\n')}\n${ind}</${tag}>`;
+    const res = `${ind}${open}>\n${lines.join('\n')}\n${ind}</${tag}>`;
+    if (N.rev && !fl.isRoot && !st.slots) {
+      st.sh.client.add('AnimateOnScroll');
+      const p = N.rev.preset && N.rev.preset !== 'fade-up' ? ` preset="${N.rev.preset}"` : '';
+      const d = N.rev.durationMs && N.rev.durationMs !== 650 ? ` durationMs={${N.rev.durationMs}}` : '';
+      const dl = N.rev.delayMs ? ` delayMs={${N.rev.delayMs}}` : '';
+      return `${ind}<AnimateOnScroll${p}${d}${dl}>\n${res.replace(/^/gm, '  ')}\n${ind}</AnimateOnScroll>`;
+    }
+    return res;
   }
 
   // hidden content revealed by interaction (details answers, aria-expanded panels)

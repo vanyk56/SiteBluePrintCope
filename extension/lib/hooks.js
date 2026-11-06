@@ -71,4 +71,29 @@
     if (f.bytes) { try { out.data = `data:${mime(f.bytes)};base64,${b64(f.bytes)}`; } catch (e) {} }
     return out;
   }).filter((f) => f.family && (f.src || f.data)));
+
+  // 4. Web Animations API & scroll-reveal tracking (Element.prototype.animate + initial hidden states)
+  const webAnims = [];
+  const revealMap = new WeakMap();
+  try {
+    const proto = W.Element && W.Element.prototype;
+    const origAnimate = proto && proto.animate;
+    if (origAnimate) {
+      hide(proto, 'animate', function animate(keyframes, options) {
+        const anim = origAnimate.call(this, keyframes, options);
+        try {
+          if (webAnims.length < 120) {
+            const dur = typeof options === 'number' ? options : (options && +options.duration) || 0;
+            const delay = (options && +options.delay) || 0;
+            const easing = (options && options.easing) || 'linear';
+            const iterations = (options && options.iterations) || 1;
+            webAnims.push({ target: this, keyframes, duration: dur, delay, easing: String(easing), iterations });
+          }
+        } catch (e) {}
+        return anim;
+      });
+    }
+  } catch (e) {}
+  hide(W, '__sbWebAnims', () => webAnims);
+  hide(W, '__sbRevealMap', revealMap);
 })();

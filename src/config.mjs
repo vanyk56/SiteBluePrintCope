@@ -45,7 +45,7 @@ export const DEFAULTS = {
   port: 3005, host: '127.0.0.1', maxUploadMb: 300, offline: false, visualHeal: true,
 };
 const BOOL = new Set(['mobile', 'hover', 'interactions', 'robots', 'subdomains', 'sitemap', 'cookies', 'headful', 'llm', 'verbose', 'help', 'assets', 'ignoreRobots', 'version', 'html', 'zip', 'api', 'redact', 'snapshot', 'blockTrackers', 'verify', 'visual', 'visualHeal', 'build', 'catalogTools', 'strict', 'offline', 'keepIncoming', 'interactive']);
-const NUM = new Set(['depth', 'maxPages', 'perTemplate', 'concurrency', 'delay', 'timeout', 'maxNodes', 'maxAssets', 'maxAssetMb', 'maxImages', 'maxMocks', 'healIterations', 'threshold', 'minSimilarity', 'port', 'assetRetries', 'assetConcurrency', 'maxUploadMb']);
+const NUM = new Set(['depth', 'maxPages', 'perTemplate', 'concurrency', 'delay', 'timeout', 'maxNodes', 'maxAssets', 'maxAssetMb', 'maxImages', 'maxMocks', 'healIterations', 'threshold', 'minSimilarity', 'failUnder', 'port', 'assetRetries', 'assetConcurrency', 'maxUploadMb']);
 const ALIASES = { d: 'depth', p: 'maxPages', o: 'out', m: 'model', h: 'help', v: 'verbose', i: 'interactive' };
 
 export function parseArgs(argv) {

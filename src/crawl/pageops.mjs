@@ -362,3 +362,21 @@ export async function probeBurger(page, file) {
     return { id, screenshot: file, text, links: (menu && menu.links) || [], style: (menu && menu.style) || null };
   } catch (e) { log.debug('burger', String(e.message).split('\n')[0]); return null; }
 }
+
+// Multi-frame animation filmstrip (t0 -> t1 -> t2 -> ...) for complex animations, hover transitions, or canvas effects.
+export async function captureAnimationStrip(page, outPrefix, { selector = null, clip = null, frames = 5, intervalMs = 120 } = {}) {
+  const out = [];
+  await ensureDir(path.dirname(outPrefix));
+  for (let i = 0; i < frames; i++) {
+    const file = `${outPrefix}-f${i + 1}.png`;
+    try {
+      if (selector) await page.locator(selector).first().screenshot({ path: file, animations: 'allow', timeout: 5000 });
+      else if (clip) await page.screenshot({ path: file, clip, animations: 'allow', timeout: 5000 });
+      else await page.screenshot({ path: file, animations: 'allow', timeout: 5000 });
+      out.push({ frame: i + 1, tMs: i * intervalMs, file });
+    } catch (e) { log.debug('anim-strip', i, String(e.message).split('\n')[0]); break; }
+    if (i + 1 < frames) await sleep(intervalMs);
+  }
+  return out;
+}
+

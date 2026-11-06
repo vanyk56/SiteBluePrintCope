@@ -165,3 +165,75 @@ test('lib/catalog.ts: parsePrice / filterCatalog (TypeScript без сборки
   assert.equal(m.formatPrice(3675, '₽'), '3\u00a0675\u00a0₽');
   await fsp.rm(dir, { recursive: true, force: true });
 });
+
+test('AnimateOnScroll + buildGlobalsCss: обёртка scroll-reveal элементов и перенос @keyframes / --animate-* в Tailwind v4 @theme', async () => {
+  const { createSkeleton } = await import('../../src/analyze/skeleton.mjs');
+  const { createTw } = await import('../../src/analyze/tailwind.mjs');
+  const { buildGlobalsCss } = await import('../../src/output/theme.mjs');
+
+  assert.deepEqual(clientImports(['AnimateOnScroll']), [
+    "import { AnimateOnScroll } from '@/components/interactive/AnimateOnScroll';",
+  ]);
+  assert.ok(INTERACTIVE_FILES['components/interactive/AnimateOnScroll.tsx'].includes('IntersectionObserver'));
+
+  const childNode = {
+    i: 2,
+    t: 'div',
+    r: [120, 660, 600, 200],
+    s: { display: 'flex', 'flex-direction': 'column', gap: [16, 16] },
+    rev: { preset: 'fade-up', durationMs: 700, delayMs: 150 },
+    k: [{ i: 3, t: 'h2', r: [120, 660, 400, 48], s: { 'font-size': 36, 'font-weight': 700 }, k: ['Анимированный заголовок'] }],
+  };
+  const sectionNode = {
+    i: 1,
+    t: 'section',
+    r: [0, 600, 1440, 400],
+    s: { display: 'block', padding: [64, 0, 64, 0] },
+    k: [childNode],
+  };
+
+  const tw = createTw({ colorMap: {}, fontMap: {}, shadowMap: {} });
+  const P = new Map([[2, sectionNode], [3, childNode]]);
+  const E = new Map([[1, {}], [2, {}], [3, {}]]);
+  const sk = createSkeleton({
+    tw,
+    bp: { prefix: 'lg' },
+    vw: 1440,
+    vp: { w: 1440, h: 900 },
+    E,
+    P,
+    bodyEff: {},
+    mob: null,
+    iconFor: () => ({ big: true }),
+    imgFor: () => null,
+    mediaFor: () => null,
+    linkFor: (h) => ({ href: h, internal: false }),
+    hoverFor: () => '',
+    hidden: { details: new Map(), expand: new Map(), dropdowns: [], dialogs: new Map(), cart: false },
+  });
+
+  const r = sk.renderSection({ node: sectionNode, type: 'features', repeats: [], name: 'FeaturesSection' });
+  const code = sk.sectionFile(r);
+  assert.ok(r.client.includes('AnimateOnScroll'), 'секция помечает использование AnimateOnScroll');
+  assert.match(code, /import \{ AnimateOnScroll \} from '@\/components\/interactive\/AnimateOnScroll';/);
+  assert.match(code, /<AnimateOnScroll durationMs=\{700\} delayMs=\{150\}>/);
+  assert.match(code, /<\/AnimateOnScroll>/);
+
+  const css = buildGlobalsCss({
+    tokens: {
+      colors: [{ name: 'primary', hex: '#2563eb' }],
+      fontMap: { Inter: 'sans' },
+      fonts: { all: [{ family: 'Inter', stack: '"Inter", sans-serif' }], body: { family: 'Inter', stack: '"Inter", sans-serif' } },
+      shadows: [],
+      animations: [{ name: 'float-slow', value: 'floatSlow 3s ease-in-out infinite' }],
+      keyframes: { floatSlow: '@keyframes floatSlow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }' },
+      roles: { background: '#ffffff', foreground: '#111111' },
+    },
+    crawl: { fonts: [] },
+  });
+  assert.match(css, /--animate-float-slow:\s*floatSlow 3s ease-in-out infinite;/);
+  assert.match(css, /@keyframes floatSlow/);
+  assert.match(css, /@keyframes sb-fade-up/);
+});
+
+

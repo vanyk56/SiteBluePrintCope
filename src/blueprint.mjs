@@ -352,10 +352,22 @@ export async function writeBlueprint(site, outDir, { llm = null, llmInfo = {}, p
     for (const c of site.components) {
       const notes = [];
       const mob = c.facts.find((f) => f.startsWith('Блок:')); if (mob && /мобильный/.test(mob)) notes.push(mob.replace(/^Блок: /, ''));
-      for (const f of c.facts) if (/^(Повтор|CSS-анимации|Transitions|Интерактив)/.test(f)) notes.push(f);
+      for (const f of c.facts) if (/^(Повтор|CSS-анимации|Scroll-reveal анимации|Transitions|Интерактив)/.test(f)) notes.push(f);
       if (!c.render.responsive && site.home.mob) notes.push('⚠ мобильная версия — по скриншоту');
       if (/sticky|fixed/.test(c.code.slice(0, 400))) notes.push(/sticky/.test(c.code.slice(0, 400)) ? 'sticky' : 'fixed');
       S.push(`- **${c.name}:** ${notes.join(' · ') || '—'}`);
+    }
+    const waapi = site.pages.flatMap((p) => (p.raw.animations || []).map((a) => ({ ...a, route: p.route })));
+    if (waapi.length) {
+      S.push('', '### 8.1 Web Animations API / Keyframes (зафиксированы в браузере)', '');
+      const seenWa = new Set();
+      for (const a of waapi) {
+        const key = `${a.name}|${a.tag}.${a.cls}|${a.duration}`;
+        if (seenWa.has(key)) continue;
+        seenWa.add(key);
+        S.push(`- \`<${a.tag}${a.cls ? '.' + a.cls : ''}>\` (${a.route}): \`${a.name}\` · ${a.duration}ms · ${a.easing}${a.iterations && a.iterations !== 1 ? ` · ×${a.iterations}` : ''}`);
+        if (seenWa.size >= 15) break;
+      }
     }
     const risks = llm && llm.globalSections && [...llm.globalSections.entries()].find(([k]) => /риск|risk/i.test(k));
     if (risks) S.push('', `### Риски (${llm.model})`, '', demote(risks[1], 2));

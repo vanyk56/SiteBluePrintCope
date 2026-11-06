@@ -334,7 +334,7 @@ export function extractPage(opts) {
 
   // ---------- registries ----------
   const svgs = [], svgIdx = new Map(), images = [], media = [], interactive = [];
-  const SHAPES = new Set(['path', 'circle', 'rect', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'g', 'use', 'svg']);
+  const SHAPES = new Set(['path', 'circle', 'rect', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'g', 'use', 'svg', 'animate', 'animatetransform', 'animatemotion', 'set', 'defs', 'lineargradient', 'radialgradient', 'stop', 'clippath', 'mask', 'filter', 'fegaussianblur', 'feoffset', 'feblend', 'fecolormatrix']);
   function svgName(svg) {
     const host = svg.closest('a,button');
     const cls = svg.getAttribute('class') || '';
@@ -517,6 +517,25 @@ export function extractPage(opts) {
     const a = attrsOf(el, t); if (a) node.a = a;
     const s = styleDiff(el, cs, pcs, t, r, pdisp);
     if (fade) { delete s.opacity; node.fade = 1; if (s.transform && /^matrix\(1, 0, 0, 1, [-\d.]+, [-\d.]+\)$/.test(s.transform)) delete s.transform; }
+    const revInfo = (window.__sbRevealMap && window.__sbRevealMap.get && window.__sbRevealMap.get(el)) || null;
+    const aosAttr = el.getAttribute('data-aos') || el.getAttribute('data-animate') || el.getAttribute('data-scroll') || '';
+    if (revInfo || aosAttr || fade) {
+      let preset = (revInfo && revInfo.preset) || 'fade-up';
+      if (aosAttr) {
+        if (/zoom|scale/i.test(aosAttr)) preset = 'zoom-in';
+        else if (/down/i.test(aosAttr)) preset = 'fade-down';
+        else if (/left/i.test(aosAttr)) preset = 'fade-left';
+        else if (/right/i.test(aosAttr)) preset = 'fade-right';
+        else if (/fade$/i.test(aosAttr)) preset = 'fade-in';
+      }
+      const durAttr = parseInt(el.getAttribute('data-aos-duration') || el.getAttribute('data-duration') || '', 10);
+      const delAttr = parseInt(el.getAttribute('data-aos-delay') || el.getAttribute('data-delay') || '', 10);
+      node.rev = {
+        preset,
+        durationMs: Number.isFinite(durAttr) ? durAttr : ((revInfo && revInfo.durationMs) || 650),
+        delayMs: Number.isFinite(delAttr) ? delAttr : ((revInfo && revInfo.delayMs) || 0),
+      };
+    }
     if (Object.keys(s).length) node.s = s;
     if (r.width <= 1.5 && r.height <= 1.5 && cs.position === 'absolute' && cs.overflow !== 'visible') node.sr = 1;
     if (!LITE) {
@@ -1043,10 +1062,20 @@ export function extractPage(opts) {
     },
   };
 
+  const webAnims = [...(window.__sbCapturedAnims || []), ...(window.__sbWebAnims || [])].slice(0, 120);
+  const revealNodes = [];
+  for (const [, n] of elNode) {
+    if (n.rev && revealNodes.length < 120) revealNodes.push({ id: n.i, tag: n.t, ...n.rev });
+  }
+  const animations = {
+    webAnimations: webAnims,
+    scrollReveals: revealNodes,
+  };
+
   return {
     url: location.href, viewport: { w: VW, h: VH }, docHeight: DOC_H, rootFontSize: parseFloat(rootCS.fontSize) || 16, pageBg, meta, tech,
     cssVars, fontFaces, keyframes, mediaQueries: [...new Set(mediaQueries)].slice(0, 200), loadedFonts, sheets, usedChars,
-    tree, svgs, images, bgImages, media, interactive, links, forms, html,
+    tree, svgs, images, bgImages, media, interactive, links, forms, html, animations,
     stats: { nodes: count, truncated, ms: Date.now() - t0, rules: ruleStats },
   };
 }

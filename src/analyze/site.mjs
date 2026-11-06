@@ -275,9 +275,10 @@ function describeSection(s, p, tw, r) {
   }
   const hov = [];
   walkTree(n, (k) => { if (hov.length >= 8) return false; if (k.ix) { /* hover classes are already in JSX */ } });
-  const anim = new Set(); const trans = new Set();
-  walkTree(n, (k) => { if (k.s && k.s.animation) anim.add(k.s.animation.split(' | ').slice(0, 2).join(' ')); if (k.s && k.s.transition) { const v = fmtTransition(k.s.transition); if (v) trans.add(v); } });
+  const anim = new Set(); const trans = new Set(); const reveals = new Set();
+  walkTree(n, (k) => { if (k.s && k.s.animation) anim.add(k.s.animation.split(' | ').slice(0, 2).join(' ')); if (k.s && k.s.transition) { const v = fmtTransition(k.s.transition); if (v) trans.add(v); } if (k.rev) reveals.add(`${k.t} (${k.rev.preset}, ${k.rev.durationMs}ms)`); });
   if (anim.size) f.push('CSS-анимации: ' + [...anim].slice(0, 5).join('; '));
+  if (reveals.size) f.push('Scroll-reveal анимации: ' + [...reveals].slice(0, 6).join(', '));
   if (trans.size) f.push('Transitions: ' + [...trans].slice(0, 4).join('; '));
   const ft = s.features || {};
   const media = [ft.imgs ? `${ft.imgs} изобр.` : '', ft.svgs ? `${ft.svgs} SVG` : '', ft.inputs ? `${ft.inputs} полей формы` : ''].filter(Boolean);

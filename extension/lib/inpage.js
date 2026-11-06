@@ -338,7 +338,7 @@
   
     // ---------- registries ----------
     const svgs = [], svgIdx = new Map(), images = [], media = [], interactive = [];
-    const SHAPES = new Set(['path', 'circle', 'rect', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'g', 'use', 'svg']);
+    const SHAPES = new Set(['path', 'circle', 'rect', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'g', 'use', 'svg', 'animate', 'animatetransform', 'animatemotion', 'set', 'defs', 'lineargradient', 'radialgradient', 'stop', 'clippath', 'mask', 'filter', 'fegaussianblur', 'feoffset', 'feblend', 'fecolormatrix']);
     function svgName(svg) {
       const host = svg.closest('a,button');
       const cls = svg.getAttribute('class') || '';
@@ -521,6 +521,25 @@
       const a = attrsOf(el, t); if (a) node.a = a;
       const s = styleDiff(el, cs, pcs, t, r, pdisp);
       if (fade) { delete s.opacity; node.fade = 1; if (s.transform && /^matrix\(1, 0, 0, 1, [-\d.]+, [-\d.]+\)$/.test(s.transform)) delete s.transform; }
+      const revInfo = (window.__sbRevealMap && window.__sbRevealMap.get && window.__sbRevealMap.get(el)) || null;
+      const aosAttr = el.getAttribute('data-aos') || el.getAttribute('data-animate') || el.getAttribute('data-scroll') || '';
+      if (revInfo || aosAttr || fade) {
+        let preset = (revInfo && revInfo.preset) || 'fade-up';
+        if (aosAttr) {
+          if (/zoom|scale/i.test(aosAttr)) preset = 'zoom-in';
+          else if (/down/i.test(aosAttr)) preset = 'fade-down';
+          else if (/left/i.test(aosAttr)) preset = 'fade-left';
+          else if (/right/i.test(aosAttr)) preset = 'fade-right';
+          else if (/fade$/i.test(aosAttr)) preset = 'fade-in';
+        }
+        const durAttr = parseInt(el.getAttribute('data-aos-duration') || el.getAttribute('data-duration') || '', 10);
+        const delAttr = parseInt(el.getAttribute('data-aos-delay') || el.getAttribute('data-delay') || '', 10);
+        node.rev = {
+          preset,
+          durationMs: Number.isFinite(durAttr) ? durAttr : ((revInfo && revInfo.durationMs) || 650),
+          delayMs: Number.isFinite(delAttr) ? delAttr : ((revInfo && revInfo.delayMs) || 0),
+        };
+      }
       if (Object.keys(s).length) node.s = s;
       if (r.width <= 1.5 && r.height <= 1.5 && cs.position === 'absolute' && cs.overflow !== 'visible') node.sr = 1;
       if (!LITE) {
@@ -1047,10 +1066,20 @@
       },
     };
   
+    const webAnims = [...(window.__sbCapturedAnims || []), ...(window.__sbWebAnims || [])].slice(0, 120);
+    const revealNodes = [];
+    for (const [, n] of elNode) {
+      if (n.rev && revealNodes.length < 120) revealNodes.push({ id: n.i, tag: n.t, ...n.rev });
+    }
+    const animations = {
+      webAnimations: webAnims,
+      scrollReveals: revealNodes,
+    };
+  
     return {
       url: location.href, viewport: { w: VW, h: VH }, docHeight: DOC_H, rootFontSize: parseFloat(rootCS.fontSize) || 16, pageBg, meta, tech,
       cssVars, fontFaces, keyframes, mediaQueries: [...new Set(mediaQueries)].slice(0, 200), loadedFonts, sheets, usedChars,
-      tree, svgs, images, bgImages, media, interactive, links, forms, html,
+      tree, svgs, images, bgImages, media, interactive, links, forms, html, animations,
       stats: { nodes: count, truncated, ms: Date.now() - t0, rules: ruleStats },
     };
   };
@@ -1279,11 +1308,12 @@
     const start = window.scrollY;
     const loadingNear = () => [...document.images].filter((i) => { if (i.complete) return false; const r = i.getBoundingClientRect(); return r.width > 0 && r.bottom > -300 && r.top < innerHeight + 600; });
     // --- scroll-reveal tracking ---
+    if (!window.__sbRevealMap) window.__sbRevealMap = new WeakMap();
     const op = (cs) => parseFloat(cs.opacity);
     const hidden = (cs) => op(cs) < 0.05 || cs.visibility === 'hidden';
     const SKIP = 'dialog,[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[role="tooltip"],[aria-hidden="true"],[hidden],template,details:not([open])';
     const IGNORE = /^(SCRIPT|STYLE|LINK|META|NOSCRIPT|TEMPLATE|OPTION|OPTGROUP|BR|WBR|SOURCE|TRACK|PATH|G|DEFS|STOP|USE)$/i;
-    const cands = new Set(); const seen = new WeakSet(); const snaps = new Map();
+    const cands = new Set(); const seen = new WeakSet(); const snaps = new Map(); const initTf = new Map();
     let scannedCount = 0, rescans = 0;
     const floating = (el) => { for (let e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) { const p = getComputedStyle(e).position; if (p === 'fixed' || p === 'sticky') return true; } return false; };
     const finishOwn = (el) => { try { for (const a of el.getAnimations()) { const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null; if (t && Number.isFinite(t.endTime) && t.endTime < 60000 && a.playState !== 'finished') a.finish(); } } catch (e) {} };
@@ -1301,6 +1331,7 @@
         const r = el.getBoundingClientRect(); if (r.width < 4 || r.height < 4) continue;
         if (el.closest(SKIP) || floating(el.parentElement)) continue;
         cands.add(el);
+        initTf.set(el, cs.transform || 'none');
         if (cands.size > 3000) return;
       }
     };
@@ -1316,6 +1347,22 @@
         const o = op(cs);
         if (cs.visibility === 'hidden' || o < 0.5) { if (o >= 0.05 && cs.visibility !== 'hidden') pending++; continue; }
         snaps.set(el, { cls: el.getAttribute('class'), style: el.getAttribute('style'), opacity: cs.opacity, transform: cs.transform, visibility: cs.visibility });
+        if (!window.__sbRevealMap.has(el)) {
+          const tf0 = initTf.get(el) || 'none';
+          let preset = 'fade-up';
+          const m = /^matrix\(([^)]+)\)$/.exec(tf0);
+          if (m) {
+            const p = m[1].split(',').map(Number);
+            const sx = Math.hypot(p[0], p[1]), tx = p[4] || 0, ty = p[5] || 0;
+            if (Math.abs(sx - 1) > 0.06 && sx < 1) preset = 'zoom-in';
+            else if (ty > 6) preset = 'fade-up';
+            else if (ty < -6) preset = 'fade-down';
+            else if (tx > 6) preset = 'fade-left';
+            else if (tx < -6) preset = 'fade-right';
+            else preset = 'fade-in';
+          }
+          window.__sbRevealMap.set(el, { preset, durationMs: 650, delayMs: 0 });
+        }
       }
       return pending;
     };
@@ -1406,10 +1453,32 @@
   };
   const finishAnimationsInPage = async function finishAnimationsInPage() {
     let n = 0;
+    if (!window.__sbCapturedAnims) window.__sbCapturedAnims = [];
     for (const a of document.getAnimations ? document.getAnimations() : []) {
       try {
-        if (a.playState === 'finished') continue;
         const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+        if (a.effect && window.__sbCapturedAnims.length < 150) {
+          const kfs = a.effect.getKeyframes ? a.effect.getKeyframes().slice(0, 10) : [];
+          const target = a.effect.target;
+          const tag = target && target.tagName ? target.tagName.toLowerCase() : '';
+          window.__sbCapturedAnims.push({
+            name: a.animationName || a.transitionProperty || a.id || 'web-anim',
+            kind: a.animationName ? 'css-keyframes' : a.transitionProperty ? 'css-transition' : 'waapi',
+            tag,
+            duration: t ? Number(t.duration) || 0 : 0,
+            delay: t ? Number(t.delay) || 0 : 0,
+            easing: (t && t.easing) || 'ease',
+            iterations: t ? (Number.isFinite(t.iterations) ? t.iterations : 'infinite') : 1,
+            keyframes: kfs.map((k) => {
+              const o = { offset: k.offset, easing: k.easing };
+              for (const p of ['opacity', 'transform', 'translate', 'scale', 'rotate', 'filter', 'backgroundColor', 'color']) {
+                if (k[p] !== undefined && k[p] !== '') o[p] = k[p];
+              }
+              return o;
+            }),
+          });
+        }
+        if (a.playState === 'finished') continue;
         if (!t || !Number.isFinite(t.endTime) || t.endTime > 60000) continue;
         a.finish(); n++;
       } catch (e) {}

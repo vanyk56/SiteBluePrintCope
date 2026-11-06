@@ -1,6 +1,6 @@
-node_modules/
-output/
-_incoming/
+/node_modules/
+/output/
+/_incoming/
 .next/
 .env
 *.log
@@ -9,3 +9,4 @@ _incoming/
 !dist/*.zip
 .DS_Store
 Thumbs.db
+
