@@ -18,27 +18,139 @@ export function forceLazyInPage() {
 }
 
 // Scroll the whole page step by step (IntersectionObserver lazy-loading, scroll-reveal), then back to the top.
-export async function autoScrollInPage({ maxSteps = 90, budgetMs = 25000, restore = false } = {}) {
+// Scroll-reveal is detected by behaviour (computed state), not by class names: in-flow elements that are hidden
+// (opacity ~0 or visibility:hidden) at the start and turn visible while they are in the viewport. Pages that hide them
+// again once they leave the viewport (IntersectionObserver toggles, AOS `mirror`, whileInView without `once`) would come
+// out blank in a full-page screenshot and in the extracted styles, so their revealed state is put back after the scroll:
+// the class/style attributes seen while visible, and — if the page keeps them hidden anyway — the computed values.
+// Returns { steps, revealed, restored }.
+export async function autoScrollInPage({ maxSteps = 90, budgetMs = 25000, restore = false, reveal = true } = {}) {
   const t0 = Date.now();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const H = () => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
   const step = Math.max(300, Math.round(innerHeight * 0.7));
   const to = (top) => window.scrollTo({ top, left: 0, behavior: 'instant' });
   const start = window.scrollY;
   const loadingNear = () => [...document.images].filter((i) => { if (i.complete) return false; const r = i.getBoundingClientRect(); return r.width > 0 && r.bottom > -300 && r.top < innerHeight + 600; });
+  // --- scroll-reveal tracking ---
+  const op = (cs) => parseFloat(cs.opacity);
+  const hidden = (cs) => op(cs) < 0.05 || cs.visibility === 'hidden';
+  const SKIP = 'dialog,[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[role="tooltip"],[aria-hidden="true"],[hidden],template,details:not([open])';
+  const IGNORE = /^(SCRIPT|STYLE|LINK|META|NOSCRIPT|TEMPLATE|OPTION|OPTGROUP|BR|WBR|SOURCE|TRACK|PATH|G|DEFS|STOP|USE)$/i;
+  const cands = new Set(); const seen = new WeakSet(); const snaps = new Map();
+  let scannedCount = 0, rescans = 0;
+  const floating = (el) => { for (let e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) { const p = getComputedStyle(e).position; if (p === 'fixed' || p === 'sticky') return true; } return false; };
+  const finishOwn = (el) => { try { for (const a of el.getAnimations()) { const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null; if (t && Number.isFinite(t.endTime) && t.endTime < 60000 && a.playState !== 'finished') a.finish(); } } catch (e) {} };
+  const scan = () => {
+    if (!reveal || !document.body) return;
+    const all = document.body.getElementsByTagName('*'); scannedCount = all.length;
+    for (let i = 0; i < all.length && i < 25000; i++) {
+      const el = all[i]; if (seen.has(el)) continue; seen.add(el);
+      if (IGNORE.test(el.tagName)) continue;
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.display === 'contents' || !hidden(cs)) continue;
+      if (cs.position === 'absolute' || cs.position === 'fixed' || cs.position === 'sticky') continue;
+      // visibility is inherited: only the topmost hidden element of a subtree is a candidate
+      if (op(cs) >= 0.05 && el.parentElement && getComputedStyle(el.parentElement).visibility === 'hidden') continue;
+      const r = el.getBoundingClientRect(); if (r.width < 4 || r.height < 4) continue;
+      if (el.closest(SKIP) || floating(el.parentElement)) continue;
+      cands.add(el);
+      if (cands.size > 3000) return;
+    }
+  };
+  // candidates in the viewport now: finish their transitions, remember the attributes of the visible state
+  const check = () => {
+    let pending = 0;
+    for (const el of cands) {
+      if (!el.isConnected) continue;
+      const r = el.getBoundingClientRect();
+      if (r.bottom <= 0 || r.top >= innerHeight || r.width < 1) continue;
+      finishOwn(el);
+      const cs = getComputedStyle(el);
+      const o = op(cs);
+      if (cs.visibility === 'hidden' || o < 0.5) { if (o >= 0.05 && cs.visibility !== 'hidden') pending++; continue; }
+      snaps.set(el, { cls: el.getAttribute('class'), style: el.getAttribute('style'), opacity: cs.opacity, transform: cs.transform, visibility: cs.visibility });
+    }
+    return pending;
+  };
+  scan();
   let y = 0, n = 0;
   while (y < H() && n < maxSteps && Date.now() - t0 < budgetMs) {
     y += step; to(y); n++;
     await sleep(120);
     const p = loadingNear();
     if (p.length) await Promise.race([Promise.all(p.map((i) => new Promise((r) => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); }))), sleep(900)]);
+    if (cands.size || reveal) {
+      // JS tweens (rAF-driven, invisible to getAnimations) get one short extra wait
+      if (check()) { await sleep(350); check(); }
+      // content rendered while scrolling (lazy sections, infinite lists): look for new candidates now and then
+      if (reveal && rescans < 6 && document.body && document.body.getElementsByTagName('*').length > scannedCount * 1.05 + 20) { rescans++; scan(); check(); }
+    }
   }
   await sleep(250);
   to(restore ? start : 0);
   await sleep(350);
   if (!restore && window.scrollY !== 0) { document.documentElement.style.scrollBehavior = 'auto'; to(0); await sleep(200); }
-  return n;
+  // --- put back the revealed state of elements the page hid again ---
+  let restored = 0;
+  if (snaps.size) {
+    const back = [];
+    for (const [el, s] of snaps) {
+      if (!el.isConnected) continue;
+      const cs = getComputedStyle(el);
+      if (!hidden(cs) && op(cs) >= 0.5) continue;
+      back.push({ el, s, cls: el.getAttribute('class'), style: el.getAttribute('style') });
+      if (s.cls === null) el.removeAttribute('class'); else el.setAttribute('class', s.cls);
+      if (s.style === null) el.removeAttribute('style'); else el.setAttribute('style', s.style);
+    }
+    await frames();
+    for (const b of back) {
+      const { el, s } = b;
+      finishOwn(el);
+      let cs = getComputedStyle(el);
+      if (hidden(cs) || op(cs) < 0.5) {
+        // the hidden state lives outside the attributes (framework state, inline style re-applied): pin the visible values
+        el.style.setProperty('opacity', s.opacity, 'important');
+        if (s.visibility !== 'hidden') el.style.setProperty('visibility', 'visible', 'important');
+        el.style.setProperty('transform', s.transform || 'none', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+        cs = getComputedStyle(el);
+      }
+      // fade carousels / stacked slides: two visible siblings on the same spot means this one is meant to be hidden
+      const r = el.getBoundingClientRect(); let clash = false;
+      if (el.parentElement && r.width > 0) {
+        let k = 0;
+        for (const sb of el.parentElement.children) {
+          if (sb === el || ++k > 40) continue;
+          const c2 = getComputedStyle(sb); if (hidden(c2) || c2.display === 'none') continue;
+          const r2 = sb.getBoundingClientRect();
+          const ix = Math.max(0, Math.min(r.right, r2.right) - Math.max(r.left, r2.left)); const iy = Math.max(0, Math.min(r.bottom, r2.bottom) - Math.max(r.top, r2.top));
+          if (ix * iy > 0.5 * Math.min(r.width * r.height, r2.width * r2.height)) { clash = true; break; }
+        }
+      }
+      if (clash) {
+        if (b.cls === null) el.removeAttribute('class'); else el.setAttribute('class', b.cls);
+        if (b.style === null) el.removeAttribute('style'); else el.setAttribute('style', b.style);
+        continue;
+      }
+      restored++;
+    }
+    await frames();
+  }
+  return { steps: n, revealed: snaps.size, restored };
 }
+
+// Motion kill-switch for screenshots: transitions/animations take no time, smooth scrolling and the text caret are off.
+// Both the original and the clone are photographed in this state (removed again by unfreezeMotionInPage).
+export function freezeMotionInPage() {
+  if (document.getElementById('__sb-freeze')) return false;
+  const st = document.createElement('style'); st.id = '__sb-freeze';
+  st.textContent = '*,*::before,*::after{transition-duration:0s!important;transition-delay:0s!important;animation-duration:0s!important;animation-delay:0s!important;scroll-behavior:auto!important;caret-color:transparent!important}html{scroll-behavior:auto!important}';
+  (document.head || document.documentElement).appendChild(st);
+  return true;
+}
+export function unfreezeMotionInPage() { const st = document.getElementById('__sb-freeze'); if (st) st.remove(); return !!st; }
 
 // Wait for web fonts and pending images (stops when nothing changes for 3 s).
 export async function waitAssetsInPage(ms = 12000) {

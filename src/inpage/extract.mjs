@@ -36,6 +36,7 @@ export function extractPage(opts) {
   const COLOR_FN = /(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color)\([^()]*\)/gi;
   const colorsIn = (s) => (s ? s.replace(COLOR_FN, (m) => toHex(m) || m) : s);
   const isClear = (h) => !h || /^#[0-9a-f]{6}00$/i.test(h);
+  const REPLACED_FORM = /^(input|select|textarea|button|progress|meter)$/;
   const pxn = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0; };
   const r1 = (n) => Math.round(n * 10) / 10;
   const abs = (u) => { try { return new URL(u, location.href).href; } catch (e) { return u; } };
@@ -102,12 +103,47 @@ export function extractPage(opts) {
     }
     const disp = cs.display;
     if (disp !== expectedDisplay(t)) s.display = disp;
+    // vertical-align matters only for inline-level boxes / table cells; replaced elements always record it (Tailwind preflight sets img/svg/video… to vertical-align: middle)
+    if (/^inline/.test(disp) || disp === 'table-cell') { const va = cs.verticalAlign; if (va !== (disp === 'table-cell' ? 'middle' : 'baseline') || (REPLACED.has(t) && disp !== 'table-cell')) s['vertical-align'] = lenOrRaw(va); }
     if (cs.position !== 'static') {
       s.position = cs.position;
       const ins = [cs.top, cs.right, cs.bottom, cs.left];
       if (ins.some((v) => v !== 'auto')) s.inset = ins.map((v) => (v === 'auto' ? 'auto' : lenOrRaw(v)));
       if (cs.zIndex !== 'auto') s['z-index'] = parseInt(cs.zIndex, 10);
     } else if (cs.zIndex !== 'auto' && /flex|grid/.test(pdisp || '')) s['z-index'] = parseInt(cs.zIndex, 10);
+    { const fl = cs.cssFloat || cs.float; if (fl && fl !== 'none') s.float = fl; if (cs.clear && cs.clear !== 'none') s.clear = cs.clear; }
+    // tables: Tailwind's preflight collapses borders, the browser default (and many sites) is "separate" + spacing
+    if (disp === 'table' || disp === 'inline-table') {
+      const tb = {};
+      if (cs.borderCollapse === 'separate') { tb.sep = 1; const sp = (cs.borderSpacing || '').trim(); if (sp && !/^0px(\s+0px)?$/.test(sp)) tb.sp = sp; }
+      if (cs.tableLayout === 'fixed') tb.fixed = 1;
+      if (cs.captionSide === 'bottom') tb.cap = 'bottom';
+      if (Object.keys(tb).length) s.table = tb;
+    }
+    // CSS counters (numbered steps, "01" badges): kept as CSS, the clone counts itself — see pseudo content counter()
+    { const c = counters(cs); if (c) s.counters = c; }
+    // multi-column text (columns: 2 + column-rule) and what must not be split between columns
+    if (!/flex|grid/.test(disp) && (cs.columnCount !== 'auto' || cs.columnWidth !== 'auto')) {
+      const mc = { count: cs.columnCount === 'auto' ? null : +cs.columnCount, width: cs.columnWidth === 'auto' ? null : pxn(cs.columnWidth) };
+      if (cs.columnGap !== 'normal') mc.gap = pxn(cs.columnGap);
+      if (cs.columnRuleStyle !== 'none' && pxn(cs.columnRuleWidth) > 0) mc.rule = `${pxn(cs.columnRuleWidth)}px ${cs.columnRuleStyle} ${toHex(cs.columnRuleColor)}`;
+      s.columns = mc;
+    }
+    if (cs.breakInside && cs.breakInside !== 'auto') s['break-inside'] = cs.breakInside;
+    // a truncated table cell ("api-gateway-production-eu-w…"), a long URL broken anywhere, custom toggles
+    if (cs.textOverflow && cs.textOverflow !== 'clip') s['text-overflow'] = cs.textOverflow;
+    // inherited ones only where they start (differ from the parent), not on every descendant
+    const own = (k) => !pcs || pcs[k] !== cs[k];
+    if (cs.wordBreak && cs.wordBreak !== 'normal' && own('wordBreak')) s['word-break'] = cs.wordBreak;
+    if (cs.overflowWrap && cs.overflowWrap !== 'normal' && own('overflowWrap')) s['overflow-wrap'] = cs.overflowWrap;
+    { const tws = cs.textWrapStyle || (/^(balance|pretty)$/.test(cs.textWrap || '') ? cs.textWrap : ''); if ((tws === 'balance' || tws === 'pretty') && own(cs.textWrapStyle !== undefined ? 'textWrapStyle' : 'textWrap')) s['text-wrap'] = tws; }
+    if (REPLACED_FORM.test(t)) {
+      const ap = cs.appearance || cs.webkitAppearance; if (ap === 'none') s.appearance = 'none';
+      // native <progress>/<meter> (no author border/background): Tailwind's preflight "border: 0 solid" would switch Chrome
+      // to the fallback look (green bar on grey) — the clone reverts the border to keep the native, accent-colored one
+      else if ((t === 'progress' || t === 'meter') && ['Top', 'Right', 'Bottom', 'Left'].every((sd) => cs['border' + sd + 'Style'] === 'none') && isClear(toHex(cs.backgroundColor)) && cs.backgroundImage === 'none') s.appearance = 'native';
+      if (cs.accentColor && cs.accentColor !== 'auto') s['accent-color'] = toHex(cs.accentColor); // set on the control itself: no inheritance noise
+    }
     const m = [cs.marginTop, cs.marginRight, cs.marginBottom, cs.marginLeft].map(pxn);
     if (m.some(Boolean)) s.margin = m;
     const pd = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map(pxn);
@@ -134,6 +170,17 @@ export function extractPage(opts) {
       for (const u of urlsIn(cs.backgroundImage)) bgImages.push({ src: u.startsWith('data:') ? u.slice(0, 60000) : abs(u), w: Math.round(r.width), h: Math.round(r.height), size: cs.backgroundSize });
     }
     if (cs.backgroundClip === 'text' || cs.webkitBackgroundClip === 'text') s['background-clip'] = 'text';
+    else if (cs.backgroundImage && cs.backgroundImage !== 'none') {
+      // per-layer boxes: gradient borders = "linear-gradient(bg) padding-box, linear-gradient(border) border-box"
+      if (cs.backgroundClip && !/^border-box(,\s*border-box)*$/.test(cs.backgroundClip)) s['background-clip'] = cs.backgroundClip.slice(0, 120);
+      if (cs.backgroundOrigin && !/^padding-box(,\s*padding-box)*$/.test(cs.backgroundOrigin)) s['background-origin'] = cs.backgroundOrigin.slice(0, 120);
+    }
+    if (cs.isolation === 'isolate') s.isolation = 'isolate';
+    { const mi = cs.maskImage || cs.webkitMaskImage; if (mi && mi !== 'none') {
+      s['mask-image'] = colorsInBg(mi).slice(0, 1500);
+      const ms = cs.maskSize || cs.webkitMaskSize, mp = cs.maskPosition || cs.webkitMaskPosition, mr = cs.maskRepeat || cs.webkitMaskRepeat;
+      if (ms && !/^auto( auto)?$/.test(ms)) s['mask-size'] = ms; if (mp && !/^0% 0%$/.test(mp)) s['mask-position'] = mp; if (mr && !/^repeat( repeat)?$/.test(mr)) s['mask-repeat'] = mr;
+    } }
     if (cs.boxShadow !== 'none') s['box-shadow'] = colorsIn(cs.boxShadow);
     if (cs.opacity !== '1') s.opacity = +cs.opacity;
     { const lc = cs.webkitLineClamp || cs.getPropertyValue('-webkit-line-clamp'); if (lc && lc !== 'none' && parseInt(lc, 10) > 0) s['line-clamp'] = parseInt(lc, 10); }
@@ -157,6 +204,10 @@ export function extractPage(opts) {
       if (cs.gridTemplateColumns !== 'none') s['grid-template-columns'] = cs.gridTemplateColumns.replace(/\[[^\]]*\]\s*/g, '').trim().slice(0, 300);
       if (cs.gridAutoFlow !== 'row') s['grid-auto-flow'] = cs.gridAutoFlow;
       if (cs.justifyItems && !['normal', 'stretch', 'legacy'].includes(cs.justifyItems)) s['justify-items'] = cs.justifyItems;
+      if (cs.gridTemplateAreas && cs.gridTemplateAreas !== 'none') s['grid-template-areas'] = cs.gridTemplateAreas.slice(0, 600);
+      // computed grid-auto-rows/-columns stay as authored (minmax(190px, auto)); grid-template-rows is resolved to px and is not taken
+      if (cs.gridAutoRows && cs.gridAutoRows !== 'auto') s['grid-auto-rows'] = cs.gridAutoRows.slice(0, 200);
+      if (cs.gridAutoColumns && cs.gridAutoColumns !== 'auto') s['grid-auto-columns'] = cs.gridAutoColumns.slice(0, 200);
     }
     if (pdisp && (pdisp.includes('flex') || pdisp.includes('grid'))) {
       if (cs.flexGrow !== '0') s['flex-grow'] = +cs.flexGrow;
@@ -164,8 +215,12 @@ export function extractPage(opts) {
       if (cs.flexBasis !== 'auto') s['flex-basis'] = cs.flexBasis;
       if (cs.alignSelf !== 'auto' && cs.alignSelf !== 'normal') s['align-self'] = cs.alignSelf;
       if (cs.order !== '0') s.order = +cs.order;
-      const gc = cs.gridColumnStart + ' / ' + cs.gridColumnEnd; if (gc !== 'auto / auto') s['grid-column'] = gc;
-      const gr = cs.gridRowStart + ' / ' + cs.gridRowEnd; if (gr !== 'auto / auto') s['grid-row'] = gr;
+      const ga = cs.gridRowStart;
+      if (/^[a-z_-][\w-]*$/i.test(ga) && !/^(auto|span)$/i.test(ga) && cs.gridColumnStart === ga && cs.gridRowEnd === ga && cs.gridColumnEnd === ga) s['grid-area'] = ga; // named area (grid-template-areas)
+      else {
+        const gc = cs.gridColumnStart + ' / ' + cs.gridColumnEnd; if (gc !== 'auto / auto') s['grid-column'] = gc;
+        const gr = cs.gridRowStart + ' / ' + cs.gridRowEnd; if (gr !== 'auto / auto') s['grid-row'] = gr;
+      }
     }
     if (cs.maxWidth !== 'none') s['max-width'] = lenOrRaw(cs.maxWidth);
     if (cs.minWidth !== 'auto' && cs.minWidth !== '0px') s['min-width'] = lenOrRaw(cs.minWidth);
@@ -187,6 +242,12 @@ export function extractPage(opts) {
     if (REPLACED.has(t) || leaf || cs.position === 'absolute' || cs.position === 'fixed' || t === 'input' || t === 'select' || t === 'textarea' || t === 'hr') { s.w = r1(r.width); s.h = r1(r.height); }
     return s;
   }
+  function counters(st) {
+    const one = (v) => (v && v !== 'none' ? v.replace(/\blist-item\s+-?\d+\s*/g, '').trim() : '');
+    const o = {}; const r = one(st.counterReset), i = one(st.counterIncrement), z = one(st.counterSet);
+    if (r) o.reset = r.slice(0, 120); if (i) o.inc = i.slice(0, 120); if (z) o.set = z.slice(0, 120);
+    return Object.keys(o).length ? o : null;
+  }
   function pseudo(el, which) {
     const ps = getComputedStyle(el, which);
     const content = ps.content;
@@ -194,7 +255,8 @@ export function extractPage(opts) {
     const bg = toHex(ps.backgroundColor);
     const hasBox = !isClear(bg) || ps.backgroundImage !== 'none' || pxn(ps.borderTopWidth) > 0 || ps.boxShadow !== 'none';
     const txt = content.replace(/^["']|["']$/g, '');
-    if (!hasBox && !txt) return null;
+    const clr = ps.clear && ps.clear !== 'none' ? ps.clear : '';
+    if (!hasBox && !txt && !clr) return null;
     const o = { content: content.slice(0, 80), display: ps.display, position: ps.position };
     if (ps.position !== 'static') o.inset = [ps.top, ps.right, ps.bottom, ps.left].map((v) => (v === 'auto' ? 'auto' : lenOrRaw(v)));
     if (ps.width !== 'auto') o.w = lenOrRaw(ps.width);
@@ -204,6 +266,10 @@ export function extractPage(opts) {
       const us = urlsIn(ps.backgroundImage);
       for (const u of us) bgImages.push({ src: u.startsWith('data:') ? u.slice(0, 60000) : abs(u), w: 0, h: 0, size: ps.backgroundSize, pseudo: which });
       o.bgi = colorsInBg(ps.backgroundImage).slice(0, us.length ? 62000 : 1500);
+      // a 12px check centred in a 20px tinted box: without size/position/repeat it tiles at its natural size
+      if (!/^auto( auto)?$/.test(ps.backgroundSize)) o.bgs = ps.backgroundSize.slice(0, 120);
+      if (ps.backgroundPosition && !/^0% 0%$/.test(ps.backgroundPosition)) o.bgp = ps.backgroundPosition.slice(0, 120);
+      if (ps.backgroundRepeat && ps.backgroundRepeat !== 'repeat') o.bgr = ps.backgroundRepeat;
     }
     if (pxn(ps.borderTopWidth) > 0) o.border = pxn(ps.borderTopWidth) + 'px ' + ps.borderTopStyle + ' ' + toHex(ps.borderTopColor);
     if (ps.borderTopLeftRadius !== '0px') o.radius = lenOrRaw(ps.borderTopLeftRadius);
@@ -211,9 +277,59 @@ export function extractPage(opts) {
     if (ps.opacity !== '1') o.opacity = +ps.opacity;
     if (ps.transform !== 'none') o.transform = ps.transform;
     if (ps.filter !== 'none') o.filter = ps.filter;
-    if (txt) { o.color = toHex(ps.color); o.fontSize = pxn(ps.fontSize); }
-    if (pxn(ps.marginLeft) || pxn(ps.marginRight)) o.margin = [ps.marginTop, ps.marginRight, ps.marginBottom, ps.marginLeft].map(pxn);
+    if (clr) o.clear = clr;
+    if (ps.position !== 'static' && ps.zIndex !== 'auto') o.z = parseInt(ps.zIndex, 10);
+    if (ps.mixBlendMode && ps.mixBlendMode !== 'normal') o.blend = ps.mixBlendMode;
+    { const mi = ps.maskImage || ps.webkitMaskImage; if (mi && mi !== 'none') o.mask = colorsInBg(mi).slice(0, 1500); }
+    { const fl = ps.cssFloat || ps.float; if (fl && fl !== 'none') o.float = fl; }
+    if (txt) {
+      o.color = toHex(ps.color); o.fontSize = pxn(ps.fontSize);
+      // icon fonts often set the family on the pseudo itself (content: "\f007")
+      const ecs = getComputedStyle(el);
+      if (ps.fontFamily !== ecs.fontFamily) o.fontFamily = ps.fontFamily.slice(0, 160);
+      if (ps.fontWeight !== ecs.fontWeight) o.fontWeight = parseInt(ps.fontWeight, 10) || ps.fontWeight;
+      // "+" of a FAQ row set in 26px/1: inheriting the row's 1.6 line-height makes every row taller
+      if (ps.lineHeight !== ecs.lineHeight) o.lh = ps.lineHeight === 'normal' ? 'normal' : pxn(ps.lineHeight);
+      if (ps.fontStyle !== ecs.fontStyle) o.fontStyle = ps.fontStyle;
+      if (ps.textTransform !== ecs.textTransform) o.tt = ps.textTransform;
+      if (ps.letterSpacing !== ecs.letterSpacing && ps.letterSpacing !== 'normal') o.ls = pxn(ps.letterSpacing);
+    }
+    { const m = [ps.marginTop, ps.marginRight, ps.marginBottom, ps.marginLeft].map(pxn); if (m.some(Boolean) && (ps.display !== 'inline' || m[1] || m[3])) o.margin = ps.display === 'inline' ? [0, m[1], 0, m[3]] : m; }
+    // a pseudo inside a flex/grid parent is an item: flex: none keeps a 20px check box from shrinking next to long text
+    { const c = counters(ps); if (c) o.counters = c; }
+    if (ps.position === 'static' || ps.position === 'relative') {
+      const pd = getComputedStyle(el).display;
+      if (/grid/.test(pd)) {
+        // a "01" counter in the first column spanning two rows of a numbered list item
+        if (ps.gridColumnStart !== 'auto' || ps.gridColumnEnd !== 'auto') o.gcol = (ps.gridColumnStart + ' / ' + ps.gridColumnEnd).slice(0, 60);
+        if (ps.gridRowStart !== 'auto' || ps.gridRowEnd !== 'auto') o.grow = (ps.gridRowStart + ' / ' + ps.gridRowEnd).slice(0, 60);
+      }
+      if (/flex|grid/.test(pd)) {
+        if (/flex/.test(pd) && (ps.flexGrow !== '0' || ps.flexShrink !== '1' || ps.flexBasis !== 'auto')) o.flex = [+ps.flexGrow, +ps.flexShrink, ps.flexBasis];
+        if (ps.alignSelf && !['auto', 'normal'].includes(ps.alignSelf)) o.self = ps.alignSelf;
+        if (ps.order && ps.order !== '0') o.order = +ps.order;
+      }
+    }
     return o;
+  }
+
+  // ::first-letter (drop caps), ::marker (coloured bullets), ::placeholder (preflight would make it currentColor/50%)
+  const TXT_P = [['color', 'color', (v) => toHex(v)], ['fontSize', 'fontSize', pxn], ['fontWeight', 'fontWeight', (v) => parseInt(v, 10) || v], ['fontStyle', 'fontStyle', (v) => v], ['fontFamily', 'fontFamily', (v) => v.slice(0, 160)], ['lineHeight', 'lh', (v) => (v === 'normal' ? v : pxn(v))], ['textTransform', 'tt', (v) => v]];
+  function textPseudo(el, which, ecs, extra) {
+    let ps; try { ps = getComputedStyle(el, which); } catch (e) { return null; }
+    if (!ps || !ps.color) return null;
+    const o = {};
+    for (const [js, k, f] of TXT_P) if (ps[js] && ps[js] !== ecs[js]) o[k] = f(ps[js]);
+    if (extra) extra(ps, o);
+    return Object.keys(o).length ? o : null;
+  }
+  function firstLetter(el, ecs) {
+    return textPseudo(el, '::first-letter', ecs, (ps, o) => {
+      const fl = ps.cssFloat || ps.float; if (fl && fl !== 'none') o.float = fl;
+      const pd = [ps.paddingTop, ps.paddingRight, ps.paddingBottom, ps.paddingLeft].map(pxn); if (pd.some(Boolean)) o.padding = pd;
+      const mg = [ps.marginTop, ps.marginRight, ps.marginBottom, ps.marginLeft].map(pxn); if (mg.some(Boolean)) o.margin = mg;
+      const bg = toHex(ps.backgroundColor); if (!isClear(bg)) o.bg = bg;
+    });
   }
 
   // ---------- registries ----------
@@ -322,9 +438,14 @@ export function extractPage(opts) {
       if (el.required) a.required = true;
       if (t === 'input' && /submit|button/.test(el.type) && el.value) a.value = el.value;
       if (t === 'input' && /checkbox|radio/.test(el.type) && el.checked) a.checked = true;
+      // range/number/date… show their value (the thumb of a range slider sits at it); text-like only when authored in HTML
+      if (t === 'input' && /^(range|number|color|date|time|month|week|datetime-local)$/.test(el.type) && el.value) a.value = el.value.slice(0, 60);
+      else if (t === 'input' && /^(text|search|email|url|tel)$/.test(el.type) && g('value')) a.value = g('value').slice(0, 200);
+      if (t === 'input' && /^(range|number)$/.test(el.type)) for (const k of ['min', 'max', 'step']) if (g(k) != null) a[k] = g(k).slice(0, 20);
       if (t === 'select') a.options = [...el.options].slice(0, 30).map((o) => o.text.trim());
       try { const lab = (el.id && document.querySelector('label[for="' + CSS.escape(el.id) + '"]')) || el.closest('label'); if (lab) { const c = lab.cloneNode(true); c.querySelectorAll('select,textarea,input,option,datalist').forEach((x) => x.remove()); const tx = (c.textContent || '').replace(/\s+/g, ' ').trim(); if (tx) a.labelText = tx.slice(0, 160); } } catch (e) {}
     }
+    if (t === 'progress' || t === 'meter') { if (g('value') != null) a.value = String(el.value); for (const k of ['max', 'min', 'low', 'high', 'optimum']) if (g(k) != null) a[k] = g(k).slice(0, 20); }
     if (t === 'label' && g('for')) a.for = g('for');
     if ((t === 'td' || t === 'th') && el.colSpan > 1) a.colspan = el.colSpan;
     if ((t === 'td' || t === 'th') && el.rowSpan > 1) a.rowspan = el.rowSpan;
@@ -398,7 +519,12 @@ export function extractPage(opts) {
     if (fade) { delete s.opacity; node.fade = 1; if (s.transform && /^matrix\(1, 0, 0, 1, [-\d.]+, [-\d.]+\)$/.test(s.transform)) delete s.transform; }
     if (Object.keys(s).length) node.s = s;
     if (r.width <= 1.5 && r.height <= 1.5 && cs.position === 'absolute' && cs.overflow !== 'visible') node.sr = 1;
-    if (!LITE) { const pb = pseudo(el, '::before'); if (pb) node.pb = pb; const pa = pseudo(el, '::after'); if (pa) node.pa = pa; }
+    if (!LITE) {
+      const pb = pseudo(el, '::before'); if (pb) node.pb = pb; const pa = pseudo(el, '::after'); if (pa) node.pa = pa;
+      if (/^(block|list-item|table-cell|inline-block|flow-root)$/.test(cs.display) && el.firstChild && el.firstChild.nodeType === 3 && /\S/.test(el.firstChild.nodeValue)) { const fl = firstLetter(el, cs); if (fl) node.fl = fl; }
+      if (cs.display === 'list-item') { const mk = textPseudo(el, '::marker', cs); if (mk) node.mk = mk; }
+      if ((t === 'input' || t === 'textarea') && el.getAttribute('placeholder')) { try { const pc = toHex(getComputedStyle(el, '::placeholder').color); if (pc) node.ph = pc; } catch (e) {} }
+    }
     if (el.matches && el.matches(IX_SEL)) markInteractive(el, node, t);
     if (t === 'svg') { node.svg = LITE ? -1 : registerSvg(el, cs, r); return node; }
     if (t === 'img') { node.img = LITE ? -1 : registerImg(el, cs, r); return node; }
@@ -410,7 +536,8 @@ export function extractPage(opts) {
     const flush = () => {
       if (!pending) return;
       let tx = pre ? pending.replace(/\uE000/g, '\n') : pending.replace(/[ \t\n\r\f]+/g, ' ').replace(/ ?\uE000 ?/g, '\n');
-      if (/[^ \t\n\r\f]/.test(tx) || (k.length && tx === ' ')) k.push(tx);
+      // in <pre> a whitespace-only node is content: the "\n" between two highlighted <span>s is the line break
+      if (/[^ \t\n\r\f]/.test(tx) || (k.length && tx === ' ') || (pre && tx)) k.push(tx);
       pending = '';
     };
     for (const ch of renderChildren(el)) {
@@ -422,8 +549,9 @@ export function extractPage(opts) {
       }
     }
     flush();
-    if (k.length && typeof k[0] === 'string') { k[0] = k[0].replace(/^[ \t]+/, ''); if (!k[0]) k.shift(); }
-    if (k.length && typeof k[k.length - 1] === 'string') { k[k.length - 1] = k[k.length - 1].replace(/[ \t]+$/, ''); if (!k[k.length - 1]) k.pop(); }
+    if (!pre && k.length && typeof k[0] === 'string') { k[0] = k[0].replace(/^[ \t]+/, ''); if (!k[0]) k.shift(); }
+    if (!pre && k.length && typeof k[k.length - 1] === 'string') { k[k.length - 1] = k[k.length - 1].replace(/[ \t]+$/, ''); if (!k[k.length - 1]) k.pop(); }
+    if (pre && k.length && typeof k[k.length - 1] === 'string' && !/[^ \t\n\r\f]/.test(k[k.length - 1])) k.pop();
     if (k.length) node.k = k;
     const ss = node.s || {};
     const visual = ss['background-color'] || ss['background-image'] || ss['border-width'] || ss['box-shadow'] || node.pb || node.pa || node.ix;
@@ -459,7 +587,11 @@ export function extractPage(opts) {
       if (p === 'z-index') return 'z';
       if (p === 'flex-direction') return 'flexDir'; if (p === 'flex-wrap') return 'flexWrap';
       if (p === 'justify-content') return 'justify'; if (p === 'align-items') return 'items';
-      if (p === 'grid-template-columns' || p === 'grid-template-areas') return 'gridCols';
+      if (p === 'grid-template-columns') return 'gridCols'; if (p === 'grid-template-areas') return 'gridAreas';
+      if (p === 'grid-auto-rows') return 'autoRows'; if (p === 'grid-auto-columns') return 'autoCols'; if (p === 'grid-area') return 'area';
+      if (p === 'float') return 'float'; if (p === 'clear') return 'clear'; if (/^counter-/.test(p)) return 'counters'; if (/^(border-collapse|border-spacing|table-layout|caption-side)$/.test(p)) return 'table';
+      if (p === 'columns' || /^column-(count|width|rule)/.test(p)) return 'columns'; if (p === 'break-inside') return 'breakInside';
+      if (/^(text-overflow|word-break|overflow-wrap|word-wrap|text-wrap)/.test(p)) return 'textWrap'; if (/appearance$/.test(p)) return 'appearance'; if (p === 'accent-color') return 'accent';
       if (p === 'grid-auto-flow') return 'gridFlow';
       if (/^grid-column/.test(p)) return 'colSpan'; if (/^grid-row/.test(p)) return 'rowSpan';
       if (/^flex(-grow|-shrink|-basis)?$/.test(p)) return 'flex';
@@ -531,20 +663,22 @@ export function extractPage(opts) {
               }
               continue;
             }
-            let sz = null, grp = null, ins = null;
+            let sz = null, grp = null, ins = null, gcv = null;
             for (let i = 0; i < st.length; i++) {
               const p = st[i];
+              if (active && p === 'grid-template-columns') gcv = st.getPropertyValue(p).trim() || null;
               if (active && SIZE_P[p]) { const v = st.getPropertyValue(p).trim(); if (v && !/^(auto|initial|unset|inherit|revert|revert-layer|none|normal)$/.test(v)) (sz = sz || {})[SIZE_P[p]] = v; }
               if (active && INS_P[p]) (ins = ins || {})[INS_P[p]] = st.getPropertyValue(p).trim();
               if (th !== null) { const g = PG(p); if (g) (grp = grp || new Set()).add(g); }
             }
-            if (!sz && !grp && !ins) continue;
+            if (!sz && !grp && !ins && !gcv) continue;
             ruleStats.rules++;
             for (const el of nodesFor(rule.selectorText)) {
               const n = elNode.get(el); if (!n) continue;
               ruleStats.matched++;
               if (sz) { if (sz.w) n._aw = sz.w; if (sz.h) n._ah = sz.h; }
               if (ins) Object.assign(n._ai || (n._ai = {}), ins);
+              if (gcv) n._agc = gcv;
               if (grp) { const b = n._bq || (n._bq = {}); const cur = b[th] || (b[th] = new Set()); grp.forEach((g) => cur.add(g)); }
             }
           } else if (rule.type === 4) {
@@ -571,14 +705,36 @@ export function extractPage(opts) {
     }
     if (hvProbe) { hvProbe.remove(); hvProbe = null; }
     const NUMPX = /^-?[\d.]+px$/;
+    let mfN = 0;
     for (const [el, n] of elNode) {
       // authored insets: computed top/right/bottom/left of positioned elements are used px values even when "auto"
       if (n.s && n.s.inset && !ruleStats.capped) {
         const a = n._ai || {};
         if (el.style) for (const [p, k] of Object.entries(INS_P)) { const v = el.style.getPropertyValue(p); if (v) a[k] = v; }
         n.ai = ['t', 'r', 'b', 'l'].filter((k) => a[k] && !/^(auto|initial|unset|revert|revert-layer)$/.test(a[k])).join('');
+        // authored percentages (top: 50% + translate for centering) instead of the px they resolve to at this viewport
+        ['t', 'r', 'b', 'l'].forEach((k, i) => { if (/^-?[\d.]+%$/.test(a[k] || '') && typeof n.s.inset[i] === 'number') n.s.inset[i] = a[k]; });
       }
       delete n._ai;
+      // authored grid-template-columns (264px minmax(0, 1fr) 224px, repeat(auto-fill, minmax(240px, 1fr))) instead of the
+      // resolved px tracks: kept only when it re-resolves to the same tracks on this element (cascade/specificity check)
+      if (el.style && el.style.gridTemplateColumns) n._agc = el.style.gridTemplateColumns;
+      if (n._agc && n.s && n.s['grid-template-columns'] && !ruleStats.capped) {
+        let v = n._agc;
+        for (let g = 0; g < 5 && /var\(/.test(v); g++) v = v.replace(/var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*(?:\([^()]*\))?[^()]*))?\)/g, (m0, name, fb) => getComputedStyle(el).getPropertyValue(name).trim() || (fb || '').trim());
+        if (v && v.length <= 160 && !/var\(|\[|subgrid|masonry|inherit|initial|unset|revert|none/.test(v)) {
+          const prev = el.style.getPropertyValue('grid-template-columns'), pri = el.style.getPropertyPriority('grid-template-columns');
+          const before = getComputedStyle(el).gridTemplateColumns;
+          try {
+            el.style.setProperty('grid-template-columns', v, 'important');
+            const after = getComputedStyle(el).gridTemplateColumns;
+            const a = before.replace(/\[[^\]]*\]\s*/g, '').trim().split(/\s+/), b = after.replace(/\[[^\]]*\]\s*/g, '').trim().split(/\s+/);
+            if (a.length === b.length && a.every((x, i) => Math.abs(parseFloat(x) - parseFloat(b[i])) < 0.6)) n.s.gcv = v.replace(/\s*,\s*/g, ',').replace(/\s+/g, ' ');
+          } catch (e) {}
+          if (prev) el.style.setProperty('grid-template-columns', prev, pri); else el.style.removeProperty('grid-template-columns');
+        }
+      }
+      delete n._agc;
       for (const [key, pk] of [['_pib', 'pb'], ['_pia', 'pa']]) {
         const ps = n[pk]; const a = n[key]; delete n[key];
         if (!ps || !a || ruleStats.capped) continue;
@@ -593,10 +749,38 @@ export function extractPage(opts) {
         if (cs.display !== 'inline' && cs.display !== 'contents') {
           const s = n.s || (n.s = {}); const r = el.getBoundingClientRect();
           n.au = (n._aw ? 'w' : '') + (n._ah ? 'h' : '');
-          if (n._aw) { if (s.w === undefined) s.w = r1(r.width); if (!NUMPX.test(n._aw) && !/var\(/.test(n._aw)) s.wv = n._aw.slice(0, 80); }
+          if (n._aw) {
+            if (s.w === undefined) s.w = r1(r.width);
+            if (!NUMPX.test(n._aw) && !/var\(/.test(n._aw)) s.wv = n._aw.slice(0, 80);
+            else if (NUMPX.test(n._aw)) { // the authored px width is the used one (not overridden): keep px, never "w-full"
+              const cw = cs.boxSizing === 'border-box' ? r.width : r.width - pxn(cs.paddingLeft) - pxn(cs.paddingRight) - pxn(cs.borderLeftWidth) - pxn(cs.borderRightWidth);
+              if (Math.abs(parseFloat(n._aw) - cw) < 0.6) s.wpx = 1;
+            }
+          }
           if (n._ah) { if (s.h === undefined) s.h = r1(r.height); if (!NUMPX.test(n._ah) && !/var\(/.test(n._ah)) s.hv = n._ah.slice(0, 80); }
         }
         delete n._aw; delete n._ah;
+      }
+      // equal side margins of a box centred in its parent: "margin: 0 auto" or fixed ("margin: 0 18px" on an auto-width
+      // block)? Computed margins are used px either way, so they are re-resolved as auto: if the box moves or resizes,
+      // the margins are fixed (s.mfix) and must not become mx-auto
+      if (n.s && n.s.margin && n.r && mfN < 600 && Date.now() - T0 < BUDGET + 1500) {
+        const m = n.s.margin; const pn = el.parentElement && elNode.get(el.parentElement);
+        if (m[1] > 0 && Math.abs(m[1] - m[3]) <= 1 && pn && pn.r && n.r[2] < pn.r[2] - 2) {
+          const pp = (pn.s && pn.s.padding) || [0, 0, 0, 0];
+          const lg = n.r[0] - pn.r[0] - pp[3], rg = pn.r[0] + pn.r[2] - (n.r[0] + n.r[2]) - pp[1];
+          if (Math.abs(lg - rg) <= 2 && el.style) {
+            mfN++;
+            const st = el.style; const keep = ['margin-left', 'margin-right'].map((pr) => [pr, st.getPropertyValue(pr), st.getPropertyPriority(pr)]);
+            try {
+              const a = el.getBoundingClientRect();
+              st.setProperty('margin-left', 'auto', 'important'); st.setProperty('margin-right', 'auto', 'important');
+              const b = el.getBoundingClientRect();
+              if (Math.abs(a.left - b.left) > 1 || Math.abs(a.width - b.width) > 1) n.s.mfix = 1;
+            } catch (e) {}
+            for (const [pr, v, pri] of keep) { if (v) st.setProperty(pr, v, pri); else st.removeProperty(pr); }
+          }
+        }
       }
       if (n._bq) { n.bq = Object.entries(n._bq).map(([t, set]) => [+t, [...set].join(',')]); delete n._bq; }
       if (n._hv) { n.hv = n._hv; delete n._hv; }

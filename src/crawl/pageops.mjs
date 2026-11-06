@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { ensureDir, sleep, limiter } from '../util.mjs';
 import { log } from '../log.mjs';
+import { forceLazyInPage, autoScrollInPage, finishAnimationsInPage, waitAssetsInPage, freezeMotionInPage, unfreezeMotionInPage } from '../inpage/prepare.mjs';
 
 export async function settle(page, ms = 8000) { try { await page.waitForLoadState('networkidle', { timeout: ms }); } catch {} }
 
@@ -23,87 +24,26 @@ export async function dismissCookies(page) {
   } catch { return ''; }
 }
 
+// The in-page parts live in src/inpage/prepare.mjs (shared with the browser extension).
 // Lazy images: native loading="lazy" -> eager, data-src / data-srcset -> src / srcset (JS lazy loaders).
-export async function forceLazy(page) {
-  try {
-    return await page.evaluate(() => {
-      let n = 0;
-      const PH = /(placeholder|blank|spacer|transparent)[^/]*\.(gif|png|svg)(\?|$)/i;
-      for (const img of document.querySelectorAll('img')) {
-        if (img.loading === 'lazy') { img.loading = 'eager'; n++; }
-        for (const [from, to] of [['data-src', 'src'], ['data-lazy-src', 'src'], ['data-original', 'src'], ['data-srcset', 'srcset'], ['data-lazy-srcset', 'srcset']]) {
-          const v = img.getAttribute(from); const cur = img.getAttribute(to);
-          if (v && v !== cur && (!cur || cur.startsWith('data:') || PH.test(cur))) { img.setAttribute(to, v); n++; }
-        }
-      }
-      for (const s of document.querySelectorAll('source[data-srcset]')) if (!s.getAttribute('srcset')) { s.setAttribute('srcset', s.getAttribute('data-srcset')); n++; }
-      return n;
-    });
-  } catch { return 0; }
-}
+export async function forceLazy(page) { try { return await page.evaluate(forceLazyInPage); } catch { return 0; } }
 
-// Scrolls the page in steps; at every step waits (briefly) for images that are loading in/near the viewport.
-export async function autoScroll(page, { maxSteps = 90, budgetMs = 25000 } = {}) {
-  try {
-    await page.evaluate(async ({ maxSteps, budgetMs }) => {
-      const t0 = Date.now();
-      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-      const H = () => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-      const step = Math.max(300, Math.round(innerHeight * 0.7));
-      const to = (top) => window.scrollTo({ top, left: 0, behavior: 'instant' });
-      const loadingNear = () => [...document.images].filter((i) => { if (i.complete) return false; const r = i.getBoundingClientRect(); return r.width > 0 && r.bottom > -300 && r.top < innerHeight + 600; });
-      let y = 0, n = 0;
-      while (y < H() && n < maxSteps && Date.now() - t0 < budgetMs) {
-        y += step; to(y); n++;
-        await sleep(120);
-        const p = loadingNear();
-        if (p.length) await Promise.race([Promise.all(p.map((i) => new Promise((r) => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); }))), sleep(900)]);
-      }
-      await sleep(250);
-      to(0);
-      await sleep(350);
-      if (window.scrollY !== 0) { document.documentElement.style.scrollBehavior = 'auto'; to(0); await sleep(200); }
-    }, { maxSteps, budgetMs });
-  } catch {}
+// Scrolls the page in steps (waits for images loading near the viewport) and back to the top; scroll-reveal content
+// that the page hides again after it left the viewport gets its revealed state back. → { steps, revealed, restored }
+export async function autoScroll(page, { maxSteps = 90, budgetMs = 25000, reveal = true } = {}) {
+  try { return await page.evaluate(autoScrollInPage, { maxSteps, budgetMs, reveal }); } catch { return null; }
 }
 
 // Finite CSS transitions / animations (scroll-reveal, entrance effects) jump to their end state, so styles are captured
 // settled instead of mid-fade (opacity 0.9, translate-y 2px on the first row of cards).
-export async function finishAnimations(page) {
-  try {
-    return await page.evaluate(async () => {
-      let n = 0;
-      for (const a of document.getAnimations ? document.getAnimations() : []) {
-        try {
-          if (a.playState === 'finished') continue;
-          const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
-          if (!t || !Number.isFinite(t.endTime) || t.endTime > 60000) continue;
-          a.finish(); n++;
-        } catch (e) {}
-      }
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      return n;
-    });
-  } catch { return 0; }
-}
+export async function finishAnimations(page) { try { return await page.evaluate(finishAnimationsInPage); } catch { return 0; } }
 
 // Waits for fonts and for images that are still loading — while they keep finishing (stops after 3 s without progress).
-export async function waitAssets(page, ms = 12000) {
-  try {
-    await page.evaluate(async (ms) => {
-      const t0 = Date.now(); const sleep = (x) => new Promise((r) => setTimeout(r, x));
-      const fonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
-      await Promise.race([fonts, sleep(Math.min(ms, 4000))]);
-      let last = -1, stall = 0;
-      while (Date.now() - t0 < ms) {
-        const left = [...document.images].filter((i) => !i.complete).length;
-        if (!left) break;
-        if (left === last) { stall += 250; if (stall >= 3000) break; } else { stall = 0; last = left; }
-        await sleep(250);
-      }
-    }, ms);
-  } catch {}
-}
+export async function waitAssets(page, ms = 12000) { try { await page.evaluate(waitAssetsInPage, ms); } catch {} }
+
+// Motion kill-switch around screenshots (same state for the original and the clone)
+export async function freezeMotion(page) { try { return await page.evaluate(freezeMotionInPage); } catch { return false; } }
+export async function unfreezeMotion(page) { try { return await page.evaluate(unfreezeMotionInPage); } catch { return false; } }
 
 export async function fullScreenshot(page, file, docH, maxH = 16000) {
   await ensureDir(path.dirname(file));

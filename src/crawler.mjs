@@ -166,7 +166,8 @@ export async function crawl(startUrl, opts, outDir) {
       await ops.settle(page, 6000);
       if (opts.cookies && (await ops.dismissCookies(page))) await sleep(400);
       await ops.forceLazy(page);
-      await ops.autoScroll(page);
+      const scM = await ops.autoScroll(page);
+      if (scM && scM.restored) log.debug(`scroll-reveal ${slug} (mobile): возвращено видимое состояние ${scM.restored} элем.`);
       await ops.waitAssets(page, 8000);
       await ops.finishAnimations(page);
       await provideCss(page);
@@ -175,7 +176,9 @@ export async function crawl(startUrl, opts, outDir) {
       if (!raw || !raw.tree) return null;
       await hooks.emit('afterExtract', { page, raw, url, slug, view: 'mobile' });
       for (const k of ['html', 'cssVars', 'fontFaces', 'keyframes', 'mediaQueries', 'loadedFonts', 'sheets', 'links', 'forms']) delete raw[k];
+      await ops.freezeMotion(page);
       const full = await ops.fullScreenshot(page, path.join(shotDir, 'mobile', slug + '.png'), raw.docHeight);
+      await ops.unfreezeMotion(page);
       const llm = full ? await sheets.make(full.file, path.join(shotDir, 'llm', slug + '-mobile'), { width: 520, maxH: 2000, max: 2, dpr: 2 }) : [];
       let burger = null;
       if (first && opts.interactions) { burger = await ops.probeBurger(page, path.join(shotDir, 'mobile', slug + '-menu.png')); if (burger) burger.screenshot = rel(burger.screenshot); }
@@ -214,7 +217,8 @@ export async function crawl(startUrl, opts, outDir) {
       ref.slug = slug;
       if (opts.cookies) { const c = await ops.dismissCookies(page); if (c) { log.debug('cookie banner:', c); await sleep(500); } }
       await ops.forceLazy(page);
-      await ops.autoScroll(page); mark('scroll');
+      const sc = await ops.autoScroll(page); mark('scroll');
+      if (sc && sc.restored) log.debug(`scroll-reveal ${slug}: возвращено видимое состояние ${sc.restored} элем. (страница прячет их вне экрана)`);
       await ops.waitAssets(page); mark('assets-wait');
       await ops.finishAnimations(page);
       await provideCss(page);
@@ -233,8 +237,10 @@ export async function crawl(startUrl, opts, outDir) {
       const html = raw.html; delete raw.html;
       if (html) await writeText(path.join(outDir, 'dom', slug + '.html'), html);
       const { sections } = analyzeSections(raw);
+      await ops.freezeMotion(page);
       const full = await ops.fullScreenshot(page, path.join(shotDir, 'desktop', slug + '.png'), raw.docHeight); mark('screenshot');
       const secShots = await ops.sectionShots(page, sections, path.join(shotDir, 'sections', slug), slug); mark('section-shots');
+      await ops.unfreezeMotion(page);
       if (opts.assets && (raw.media || []).some((m) => m.type === 'canvas')) {
         const cv = await ops.snapshotCanvases(page, raw.media, (i) => path.join(outDir, 'project', 'public', 'images', `canvas-${slug}-${i + 1}.png`));
         for (const c of cv) raw.media[c.index].snapshot = '/images/' + path.basename(c.file);

@@ -65,3 +65,24 @@ for (const [file, text] of outputs) {
 }
 if (check && stale) { console.error('Запусти: npm run build:extension'); process.exit(1); }
 if (!stale) console.log('extension/lib актуален');
+
+if (!check) {
+  const { ZipWriter } = await import(toUrl(path.join(EXT, 'lib', 'zip.js')));
+  const zw = new ZipWriter();
+  async function walk(dir, rel = '') {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(abs, r);
+      else await zw.add(r, new Uint8Array(await fs.readFile(abs)));
+    }
+  }
+  await walk(EXT);
+  const distDir = path.join(ROOT, 'dist');
+  await fs.mkdir(distDir, { recursive: true });
+  const zipPath = path.join(distDir, `site-blueprint-extension-v${pkg.version}.zip`);
+  const bytes = zw.finishBytes();
+  await fs.writeFile(zipPath, bytes);
+  console.log(`упакован: dist/site-blueprint-extension-v${pkg.version}.zip (${(bytes.length / 1024).toFixed(1)} KB, ${zw.count} файлов)`);
+}

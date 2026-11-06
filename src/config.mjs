@@ -40,13 +40,13 @@ export const DEFAULTS = {
   maxNodes: 4000, maxAssets: 400, maxAssetMb: 15, assets: true,
   llm: true, lang: 'ru', verbose: false, locale: '', zip: true,
   // v2: API sniffer, snapshots, plugins, self-healing build + visual regression, extension server
-  api: true, redact: true, maxMocks: 250, snapshot: true, blockTrackers: true, catalogTools: true,
+  api: true, redact: true, maxMocks: 250, snapshot: true, blockTrackers: true, catalogTools: false,
   verify: true, visual: true, healIterations: 4, deps: 'shared', threshold: 0.1, minSimilarity: 0.85,
-  port: 3005, host: '127.0.0.1', maxUploadMb: 300, offline: false,
+  port: 3005, host: '127.0.0.1', maxUploadMb: 300, offline: false, visualHeal: true,
 };
-const BOOL = new Set(['mobile', 'hover', 'interactions', 'robots', 'subdomains', 'sitemap', 'cookies', 'headful', 'llm', 'verbose', 'help', 'assets', 'ignoreRobots', 'version', 'html', 'zip', 'api', 'redact', 'snapshot', 'blockTrackers', 'verify', 'visual', 'build', 'catalogTools', 'strict', 'offline', 'keepIncoming']);
+const BOOL = new Set(['mobile', 'hover', 'interactions', 'robots', 'subdomains', 'sitemap', 'cookies', 'headful', 'llm', 'verbose', 'help', 'assets', 'ignoreRobots', 'version', 'html', 'zip', 'api', 'redact', 'snapshot', 'blockTrackers', 'verify', 'visual', 'visualHeal', 'build', 'catalogTools', 'strict', 'offline', 'keepIncoming', 'interactive']);
 const NUM = new Set(['depth', 'maxPages', 'perTemplate', 'concurrency', 'delay', 'timeout', 'maxNodes', 'maxAssets', 'maxAssetMb', 'maxImages', 'maxMocks', 'healIterations', 'threshold', 'minSimilarity', 'port', 'assetRetries', 'assetConcurrency', 'maxUploadMb']);
-const ALIASES = { d: 'depth', p: 'maxPages', o: 'out', m: 'model', h: 'help', v: 'verbose' };
+const ALIASES = { d: 'depth', p: 'maxPages', o: 'out', m: 'model', h: 'help', v: 'verbose', i: 'interactive' };
 
 export function parseArgs(argv) {
   const opts = {}; const positional = [];
@@ -123,6 +123,8 @@ site-blueprint 2 — сайт (URL или захват расширения) →
   site-blueprint listen [--port 3005]    приёмник для расширения («Отправить в локальный CLI»), только 127.0.0.1
   site-blueprint heal <папка>            собрать project/ и исправить ошибки сборки (правила + LLM-патчи), без обхода
   site-blueprint verify <папка> --url http://localhost:3000   сверить запущенный клон с оригиналом
+  site-blueprint pick <папка> [запрос]   извлечь отдельный React+Tailwind компонент (.tsx) по типу/имени/индексу
+  site-blueprint mcp                     запустить MCP-сервер (stdio) для Cursor / Claude Code / Windsurf
 
 Обход:
   -d, --depth <n>          глубина обхода ссылок (по умолч. 2)
@@ -151,7 +153,7 @@ site-blueprint 2 — сайт (URL или захват расширения) →
   --max-mocks <n>          лимит мок-ответов (250)
   --no-redact              не маскировать токены и персональные данные в моках (только для своих тестовых данных!)
   --no-snapshot            без автономных HTML-снимков snapshots/*.html
-  --no-catalog-tools       без панели поиска/сортировки в сгенерированном каталоге
+  --catalog-tools          добавить в каталог панель поиска/сортировки (её нет в оригинале — по умолчанию выкл.)
 
 LLM (OpenAI-совместимый API, настраивается в .env):
   --provider zai|zai-coding|zhipu|gemini|deepseek|openrouter|openai|ollama|custom

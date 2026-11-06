@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>СтройДом — строительство загородных домов</title>
+<style>
+@font-face { font-family: "Legacy Icons"; src: url(/icons.ttf) format("truetype"); font-weight: normal; font-style: normal; }
+html { font-size: 62.5%; -webkit-tap-highlight-color: rgba(0,0,0,0); }
+*, *:before, *:after { -webkit-box-sizing: border-box; box-sizing: border-box; }
+body { margin: 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 1.4rem; line-height: 1.42857143; color: #333; background-color: #fff; }
+a { color: #337ab7; text-decoration: none; }
+a:hover, a:focus { color: #23527c; text-decoration: underline; }
+h1, h2, h3, h4 { font-family: inherit; font-weight: 500; line-height: 1.1; color: inherit; margin-top: 20px; margin-bottom: 10px; }
+h1 { font-size: 3.6rem; } h2 { font-size: 3rem; } h3 { font-size: 2.4rem; } h4 { font-size: 1.8rem; }
+p { margin: 0 0 10px; }
+small, .small { font-size: 85%; }
+hr { margin: 20px 0; border: 0; border-top: 1px solid #eee; }
+img { vertical-align: middle; border: 0; }
+.text-muted { color: #777; } .text-center { text-align: center; } .text-right { text-align: right; }
+.pull-right { float: right !important; } .pull-left { float: left !important; }
+.clearfix:before, .clearfix:after, .container:before, .container:after, .row:before, .row:after, .nav:before, .nav:after { content: " "; display: table; }
+.clearfix:after, .container:after, .row:after, .nav:after { clear: both; }
+.container { padding-right: 15px; padding-left: 15px; margin-right: auto; margin-left: auto; }
+@media (min-width: 768px) { .container { width: 750px; } }
+@media (min-width: 992px) { .container { width: 970px; } }
+@media (min-width: 1200px) { .container { width: 1170px; } }
+.row { margin-right: -15px; margin-left: -15px; }
+.col-sm-6, .col-md-3, .col-md-4, .col-md-8, .col-md-9 { position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; }
+@media (min-width: 768px) { .col-sm-6 { float: left; width: 50%; } }
+@media (min-width: 992px) { .col-md-3, .col-md-4, .col-md-8, .col-md-9 { float: left; } .col-md-3 { width: 25%; } .col-md-4 { width: 33.33333333%; } .col-md-8 { width: 66.66666667%; } .col-md-9 { width: 75%; } }
+.ico { position: relative; top: 1px; display: inline-block; font-family: "Legacy Icons"; font-style: normal; font-weight: normal; line-height: 1; -webkit-font-smoothing: antialiased; }
+.ico-user:before { content: "\f007"; } .ico-star:before { content: "\f005"; } .ico-heart:before { content: "\f004"; } .ico-search:before { content: "\f002"; } .ico-check:before { content: "\f00c"; } .ico-cart:before { content: "\f07a"; }
+.navbar { position: relative; min-height: 50px; margin-bottom: 0; border: 1px solid #080808; border-width: 0 0 1px; background-color: #222; background-image: linear-gradient(to bottom, #3c3c3c 0, #222 100%); background-repeat: repeat-x; }
+.navbar-brand { float: left; height: 50px; padding: 15px 15px; font-size: 1.8rem; line-height: 20px; color: #fff; margin-left: -15px; text-shadow: 0 -1px 0 rgba(0,0,0,.25); }
+.navbar-brand:hover { color: #fff; text-decoration: none; }
+.nav { padding-left: 0; margin: 0; list-style: none; }
+.navbar-nav { float: left; margin: 0; }
+.navbar-nav > li { float: left; position: relative; display: block; }
+.navbar-nav > li > a { display: block; padding: 15px; line-height: 20px; color: #9d9d9d; text-shadow: 0 -1px 0 rgba(0,0,0,.25); }
+.navbar-nav > li > a:hover { color: #fff; text-decoration: none; background: transparent; }
+.navbar-nav > .active > a { color: #fff; background-image: linear-gradient(to bottom, #080808 0, #0f0f0f 100%); box-shadow: inset 0 3px 9px rgba(0,0,0,.25); }
+.navbar-right { float: right !important; margin-right: -15px; }
+.navbar-text { float: left; margin: 15px 15px; color: #9d9d9d; line-height: 20px; }
+.navbar-toggle { display: none; position: relative; float: right; padding: 9px 10px; margin: 8px 0; background: transparent; border: 1px solid #333; border-radius: 4px; cursor: pointer; }
+.navbar-toggle .icon-bar { display: block; width: 22px; height: 2px; border-radius: 1px; background-color: #fff; }
+.navbar-toggle .icon-bar + .icon-bar { margin-top: 4px; }
+.badge { display: inline-block; min-width: 10px; padding: 3px 7px; font-size: 1.2rem; font-weight: bold; line-height: 1; color: #fff; text-align: center; white-space: nowrap; vertical-align: middle; background-color: #777; border-radius: 10px; }
+.navbar .badge { background: #d9534f; margin-left: 4px; }
+.breadcrumb { padding: 8px 15px; margin: 20px 0; list-style: none; background-color: #f5f5f5; border-radius: 4px; }
+.breadcrumb > li { display: inline-block; }
+.breadcrumb > li + li:before { padding: 0 5px; color: #ccc; content: "/\00a0"; }
+.breadcrumb > .active { color: #777; }
+.jumbotron { padding: 48px 0; margin-bottom: 30px; color: inherit; background-color: #eee; background-image: linear-gradient(to bottom, #e8e8e8 0, #f5f5f5 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 1px 5px rgba(0,0,0,.08); }
+.jumbotron h1 { font-size: 6.3rem; margin-top: 0; }
+.jumbotron p { margin-bottom: 15px; font-size: 2.1rem; font-weight: 200; }
+.jumbotron .lead-note { font-size: 1.4rem; font-weight: normal; color: #777; }
+.btn { display: inline-block; padding: 6px 12px; margin-bottom: 0; font-size: 1.4rem; font-weight: normal; line-height: 1.42857143; text-align: center; white-space: nowrap; vertical-align: middle; cursor: pointer; border: 1px solid transparent; border-radius: 4px; text-shadow: 0 -1px 0 rgba(0,0,0,.2); box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 1px 1px rgba(0,0,0,.075); }
+.btn:hover { text-decoration: none; }
+.btn-lg { padding: 10px 16px; font-size: 1.8rem; line-height: 1.3333333; border-radius: 6px; }
+.btn-sm { padding: 5px 10px; font-size: 1.2rem; line-height: 1.5; border-radius: 3px; }
+.btn-primary { color: #fff; background-image: linear-gradient(to bottom, #337ab7 0, #265a88 100%); background-repeat: repeat-x; border-color: #245580; }
+.btn-primary:hover { color: #fff; background-color: #265a88; background-position: 0 -15px; }
+.btn-success { color: #fff; background-image: linear-gradient(to bottom, #5cb85c 0, #419641 100%); border-color: #3e8f3e; }
+.btn-default { color: #333; text-shadow: 0 1px 0 #fff; background-image: linear-gradient(to bottom, #fff 0, #e0e0e0 100%); border-color: #ccc; }
+.label { display: inline; padding: .2em .6em .3em; font-size: 75%; font-weight: bold; line-height: 1; color: #fff; text-align: center; white-space: nowrap; vertical-align: baseline; border-radius: .25em; }
+.label-success { background-color: #5cb85c; } .label-warning { background-color: #f0ad4e; } .label-info { background-color: #5bc0de; }
+.feature { text-align: center; padding: 10px 0 20px; }
+.feature .circle { display: inline-block; width: 72px; height: 72px; line-height: 72px; border-radius: 50%; background: #337ab7; color: #fff; font-size: 3rem; box-shadow: 0 0 0 6px #d9e8f5; }
+.feature .circle .ico { top: 2px; }
+.feature h3 { font-size: 2rem; }
+.thumbnail { display: block; padding: 4px; margin-bottom: 20px; line-height: 1.42857143; background-color: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,.075); }
+.thumbnail > img { display: block; max-width: 100%; height: auto; margin-right: auto; margin-left: auto; }
+.thumbnail .caption { padding: 9px; color: #333; }
+.thumbnail .caption h4 { margin-top: 5px; }
+.price { font-size: 2rem; font-weight: bold; color: #c9302c; }
+.price s { font-size: 1.4rem; color: #999; font-weight: normal; margin-left: 6px; }
+.stars { color: #f0ad4e; letter-spacing: 2px; font-size: 1.2rem; }
+.panel { margin-bottom: 20px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+.panel-heading { padding: 10px 15px; border-bottom: 1px solid #ddd; border-top-left-radius: 3px; border-top-right-radius: 3px; background-image: linear-gradient(to bottom, #f5f5f5 0, #e8e8e8 100%); color: #333; }
+.panel-title { margin: 0; font-size: 1.6rem; }
+.panel-body { padding: 15px; }
+.list-group { padding-left: 0; margin-bottom: 0; }
+.list-group-item { position: relative; display: block; padding: 10px 15px; margin-bottom: -1px; background-color: #fff; border: 1px solid #ddd; }
+.list-group-item:first-child { border-top-left-radius: 4px; border-top-right-radius: 4px; }
+.list-group-item:last-child { margin-bottom: 0; border-bottom-right-radius: 4px; border-bottom-left-radius: 4px; }
+.list-group-item .badge { float: right; background: #337ab7; }
+.media { margin-top: 15px; overflow: hidden; zoom: 1; }
+.media:first-child { margin-top: 0; }
+.media-left { display: table-cell; vertical-align: top; padding-right: 10px; }
+.media-body { display: table-cell; vertical-align: top; width: 10000px; overflow: hidden; }
+.media-object { display: block; width: 64px; height: 64px; border-radius: 50%; }
+.media-heading { margin-top: 0; margin-bottom: 5px; font-size: 1.6rem; }
+.table { width: 100%; max-width: 100%; margin-bottom: 20px; border-collapse: collapse; border-spacing: 0; background-color: transparent; }
+.table > thead > tr > th { vertical-align: bottom; border-bottom: 2px solid #ddd; text-align: left; padding: 8px; line-height: 1.42857143; }
+.table > tbody > tr > td { padding: 8px; line-height: 1.42857143; vertical-align: top; border-top: 1px solid #ddd; }
+.table-striped > tbody > tr:nth-of-type(odd) { background-color: #f9f9f9; }
+.table .ico-check { color: #5cb85c; }
+.well { min-height: 20px; padding: 19px; margin-bottom: 20px; background-color: #f5f5f5; background-image: linear-gradient(to bottom, #e8e8e8 0, #f5f5f5 100%); border: 1px solid #dcdcdc; border-radius: 4px; box-shadow: inset 0 1px 3px rgba(0,0,0,.05), 0 1px 0 rgba(255,255,255,.1); }
+.form-inline .form-group { display: inline-block; margin-bottom: 0; vertical-align: middle; }
+.form-control { display: block; width: 100%; height: 34px; padding: 6px 12px; font-size: 1.4rem; line-height: 1.42857143; color: #555; background-color: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: inset 0 1px 1px rgba(0,0,0,.075); font-family: inherit; }
+.form-inline .form-control { display: inline-block; width: 260px; vertical-align: middle; }
+.input-group-addon { display: inline-block; vertical-align: middle; padding: 6px 12px; font-size: 1.4rem; line-height: 20px; color: #555; background-color: #eee; border: 1px solid #ccc; border-radius: 4px 0 0 4px; border-right: 0; margin-right: -4px; }
+.input-group-addon + .form-control { border-radius: 0 4px 4px 0; }
+.alert { padding: 15px; margin-bottom: 20px; border: 1px solid transparent; border-radius: 4px; }
+.alert-info { color: #31708f; background-image: linear-gradient(to bottom, #d9edf7 0, #b9def0 100%); border-color: #9acfea; text-shadow: 0 1px 0 rgba(255,255,255,.2); box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 1px 2px rgba(0,0,0,.05); }
+.footer { margin-top: 40px; padding: 30px 0 10px; color: #999; background: #2b2b2b; border-top: 5px solid #337ab7; font-size: 1.3rem; }
+.footer h4 { color: #fff; font-size: 1.5rem; text-transform: uppercase; }
+.footer a { color: #bbb; }
+.footer ul { list-style: none; padding: 0; margin: 0; }
+.footer li { padding: 3px 0; border-bottom: 1px dotted #444; }
+.footer hr { border-top-color: #444; }
+.footer .copy { padding-bottom: 10px; }
+@media (max-width: 767px) {
+  .navbar-nav, .navbar-right, .navbar-text { display: none; }
+  .navbar-toggle { display: block; }
+  .navbar-brand { margin-left: 0; }
+  .jumbotron { padding: 30px 0; }
+  .jumbotron h1 { font-size: 3.6rem; }
+  .jumbotron p { font-size: 1.8rem; }
+  .form-inline .form-control { width: 100%; display: block; margin-bottom: 8px; }
+  .input-group-addon { display: none; }
+  .pull-right.hidden-xs { display: none; }
+}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="container">
+    <button type="button" class="navbar-toggle" aria-label="Меню"><span class="icon-bar"></span><span class="icon-bar"></span><span class="icon-bar"></span></button>
+    <a class="navbar-brand" href="/">СтройДом</a>
+    <ul class="nav navbar-nav">
+      <li class="active"><a href="/">Главная</a></li>
+      <li><a href="/projects">Проекты</a></li>
+      <li><a href="/prices">Цены</a></li>
+      <li><a href="/reviews">Отзывы</a></li>
+      <li><a href="/contacts">Контакты</a></li>
+    </ul>
+    <ul class="nav navbar-nav navbar-right">
+      <li><a href="/cart"><i class="ico ico-cart"></i> Корзина <span class="badge">3</span></a></li>
+      <li><a href="/login"><i class="ico ico-user"></i> Войти</a></li>
+    </ul>
+    <p class="navbar-text navbar-right">+7 (495) 123-45-67</p>
+  </div>
+</nav>
+<div class="jumbotron">
+  <div class="container">
+    <h1>Дома под ключ</h1>
+    <p>Проектируем и строим загородные дома из бруса, кирпича и газобетона. Фиксированная смета, гарантия 10 лет.</p>
+    <p><a class="btn btn-primary btn-lg" href="/projects" role="button">Каталог проектов &raquo;</a> <a class="btn btn-default btn-lg" href="/calc" role="button">Рассчитать стоимость</a></p>
+    <p class="lead-note"><i class="ico ico-check"></i> Более 1 200 построенных домов с 2004 года <span class="label label-success">Новинка</span> <span class="label label-info">Ипотека 6%</span></p>
+  </div>
+</div>
+<div class="container">
+  <ol class="breadcrumb"><li><a href="/">Главная</a></li><li><a href="/projects">Проекты</a></li><li class="active">Популярные</li></ol>
+  <div class="row">
+    <div class="col-md-4 feature"><span class="circle"><i class="ico ico-user"></i></span><h3>Личный прораб</h3><p class="text-muted">Один ответственный человек на всех этапах — от фундамента до отделки. Еженедельные фотоотчёты.</p></div>
+    <div class="col-md-4 feature"><span class="circle"><i class="ico ico-star"></i></span><h3>Своё производство</h3><p class="text-muted">Брус камерной сушки и окна собственного цеха. Контроль качества на каждой партии материалов.</p></div>
+    <div class="col-md-4 feature"><span class="circle"><i class="ico ico-heart"></i></span><h3>Гарантия 10 лет</h3><p class="text-muted">Прописана в договоре. Бесплатный выезд инженера в течение 48 часов после обращения.</p></div>
+  </div>
+  <hr>
+  <h2>Популярные проекты <small class="text-muted">обновлено в мае</small></h2>
+  <div class="row">
+    <div class="col-sm-6 col-md-3"><div class="thumbnail"><img src="/img/p1.jpg" alt="Дом «Сосновый»" width="400" height="300"><div class="caption"><h4>Дом «Сосновый» <span class="label label-warning">Хит</span></h4><p class="stars"><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i></p><p>120 м², брус 200×200, 2 этажа</p><p class="price">4 350 000 ₽<s>4 900 000 ₽</s></p><p><a href="/p/1" class="btn btn-primary btn-sm">Подробнее</a> <a href="/fav/1" class="btn btn-default btn-sm"><i class="ico ico-heart"></i></a></p></div></div></div>
+    <div class="col-sm-6 col-md-3"><div class="thumbnail"><img src="/img/p2.jpg" alt="Дом «Озёрный»" width="400" height="300"><div class="caption"><h4>Дом «Озёрный»</h4><p class="stars"><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i></p><p>96 м², газобетон, 1 этаж</p><p class="price">3 100 000 ₽</p><p><a href="/p/2" class="btn btn-primary btn-sm">Подробнее</a> <a href="/fav/2" class="btn btn-default btn-sm"><i class="ico ico-heart"></i></a></p></div></div></div>
+    <div class="col-sm-6 col-md-3"><div class="thumbnail"><img src="/img/p3.jpg" alt="Дом «Усадьба»" width="400" height="300"><div class="caption"><h4>Дом «Усадьба»</h4><p class="stars"><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i></p><p>210 м², кирпич, 2 этажа + мансарда</p><p class="price">9 800 000 ₽</p><p><a href="/p/3" class="btn btn-primary btn-sm">Подробнее</a> <a href="/fav/3" class="btn btn-default btn-sm"><i class="ico ico-heart"></i></a></p></div></div></div>
+    <div class="col-sm-6 col-md-3"><div class="thumbnail"><img src="/img/p4.jpg" alt="Дом «Лесной»" width="400" height="300"><div class="caption"><h4>Дом «Лесной» <span class="label label-success">−10%</span></h4><p class="stars"><i class="ico ico-star"></i><i class="ico ico-star"></i><i class="ico ico-star"></i></p><p>78 м², каркас, 1 этаж</p><p class="price">2 250 000 ₽<s>2 500 000 ₽</s></p><p><a href="/p/4" class="btn btn-primary btn-sm">Подробнее</a> <a href="/fav/4" class="btn btn-default btn-sm"><i class="ico ico-heart"></i></a></p></div></div></div>
+  </div>
+  <div class="row">
+    <div class="col-md-8">
+      <h2>Сравнение технологий</h2>
+      <table class="table table-striped">
+        <thead><tr><th>Материал</th><th>Срок</th><th>Цена за м²</th><th>Усадка</th><th>Тёплый контур</th></tr></thead>
+        <tbody>
+          <tr><td>Брус камерной сушки</td><td>3–4 месяца</td><td>от 32 000 ₽</td><td>до 2%</td><td><i class="ico ico-check"></i></td></tr>
+          <tr><td>Газобетон D500</td><td>4–5 месяцев</td><td>от 38 000 ₽</td><td>нет</td><td><i class="ico ico-check"></i></td></tr>
+          <tr><td>Кирпич облицовочный<br><span class="text-muted small">с утеплением 150 мм</span></td><td>6–8 месяцев</td><td>от 54 000 ₽</td><td>нет</td><td><i class="ico ico-check"></i></td></tr>
+          <tr><td>Каркасная технология</td><td>2 месяца</td><td>от 27 000 ₽</td><td>нет</td><td>—</td></tr>
+        </tbody>
+      </table>
+      <div class="alert alert-info"><strong>Совет:</strong> зимнее строительство дешевле на 7–12% — бригады свободнее, а материалы покупаются по сезонным ценам.</div>
+      <h2>Отзывы клиентов</h2>
+      <div class="media"><div class="media-left"><img class="media-object" src="/img/avatar1.jpg" alt="Андрей"></div><div class="media-body"><h4 class="media-heading">Андрей, Истра <small class="text-muted">март 2025</small></h4><p>Построили дом из бруса за четыре месяца. Смета не выросла ни на рубль, прораб всегда на связи. Отдельное спасибо за аккуратную стройплощадку.</p></div></div>
+      <div class="media"><div class="media-left"><img class="media-object" src="/img/avatar2.jpg" alt="Марина"></div><div class="media-body"><h4 class="media-heading">Марина, Дмитров <small class="text-muted">январь 2025</small></h4><p>Выбрали газобетон и не пожалели: зимой тепло, счета за отопление меньше, чем в старой квартире.</p></div></div>
+      <div class="media"><div class="media-left"><img class="media-object" src="/img/avatar3.jpg" alt="Олег"></div><div class="media-body"><h4 class="media-heading">Олег, Руза <small class="text-muted">ноябрь 2024</small></h4><p>Понравилось, что можно было менять планировку уже после начала работ. Всё пересчитали за день.</p></div></div>
+    </div>
+    <div class="col-md-4">
+      <h2>&nbsp;</h2>
+      <div class="panel"><div class="panel-heading"><h3 class="panel-title"><i class="ico ico-search"></i> Подбор проекта</h3></div><div class="panel-body">
+        <form class="form-inline" action="/search"><div class="form-group"><span class="input-group-addon"><i class="ico ico-search"></i></span><input type="text" class="form-control" style="width:200px" placeholder="Площадь, материал…" name="q"></div> <button type="submit" class="btn btn-success">Найти</button></form>
+      </div></div>
+      <div class="panel"><div class="panel-heading"><h3 class="panel-title">Каталог</h3></div>
+        <ul class="list-group">
+          <li class="list-group-item"><span class="badge">48</span>Дома из бруса</li>
+          <li class="list-group-item"><span class="badge">31</span>Газобетон</li>
+          <li class="list-group-item"><span class="badge">17</span>Кирпичные дома</li>
+          <li class="list-group-item"><span class="badge">9</span>Бани и гостевые</li>
+        </ul>
+      </div>
+      <div class="well"><h4>Бесплатная консультация</h4><p>Ответим на вопросы и подберём проект под ваш бюджет и участок.</p><a href="/callback" class="btn btn-primary btn-block">Заказать звонок</a></div>
+    </div>
+  </div>
+</div>
+<footer class="footer">
+  <div class="container">
+    <div class="row">
+      <div class="col-sm-6 col-md-3"><h4>Компания</h4><ul><li><a href="/about">О нас</a></li><li><a href="/team">Команда</a></li><li><a href="/jobs">Вакансии</a></li></ul></div>
+      <div class="col-sm-6 col-md-3"><h4>Проекты</h4><ul><li><a href="/projects/wood">Из бруса</a></li><li><a href="/projects/block">Газобетон</a></li><li><a href="/projects/brick">Кирпич</a></li></ul></div>
+      <div class="col-sm-6 col-md-3"><h4>Клиентам</h4><ul><li><a href="/credit">Ипотека</a></li><li><a href="/warranty">Гарантия</a></li><li><a href="/faq">Вопросы</a></li></ul></div>
+      <div class="col-sm-6 col-md-3"><h4>Контакты</h4><p><i class="ico ico-user"></i> Москва, ул. Строителей, 12</p><p>+7 (495) 123-45-67<br>info@stroydom.test</p></div>
+    </div>
+    <hr>
+    <p class="copy clearfix"><span class="pull-left">© 2004–2025 СтройДом</span><span class="pull-right hidden-xs">Сделано с <i class="ico ico-heart"></i> в Подмосковье</span></p>
+  </div>
+</footer>
+</body>
+</html>

@@ -98,10 +98,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (tab) { try { $('#host').textContent = new URL(tab.url).host || tab.url; } catch (e) { $('#host').textContent = tab.url || '—'; } $('#title').textContent = tab.title || ''; }
   const ok = tab && capturable(tab.url);
   $('#btn-page').disabled = !ok; $('#btn-site').disabled = !ok;
+  if ($('#btn-pick')) $('#btn-pick').disabled = !ok;
   if (!ok) $('#title').textContent = 'Открой обычную веб-страницу (http/https)';
   for (const el of document.querySelectorAll('input')) el.addEventListener('change', () => { readForm(); if (el.id === 'set-port' || el.id === 'set-token') checkCli(); });
   $('#btn-page').addEventListener('click', () => start('page'));
   $('#btn-site').addEventListener('click', () => start('site'));
+  if ($('#btn-pick')) {
+    $('#btn-pick').addEventListener('click', async () => {
+      if (!tab || !capturable(tab.url)) return fail('Эту страницу нельзя захватить — открой обычный http/https-сайт.');
+      const r = await chrome.runtime.sendMessage({ type: 'sb:pick', tabId: tab.id }).catch((e) => ({ ok: false, error: String(e) }));
+      if (!r || !r.ok) return fail((r && r.error) || 'не удалось запустить выбор компонента');
+      window.close();
+    });
+  }
   $('#btn-cancel').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'sb:cancel' }));
   $('#btn-revoke').addEventListener('click', async () => {
     const all = await chrome.permissions.getAll();

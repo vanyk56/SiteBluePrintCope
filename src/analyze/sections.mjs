@@ -2,18 +2,51 @@ import { kids, textOf, walkTree, ownText } from './tree.mjs';
 import { pascal } from '../util.mjs';
 
 const hasBox = (n) => n.s && (n.s['background-color'] || n.s['background-image'] || n.s['border-width'] || n.s['box-shadow']);
+// a tiny leaf between sections that still shapes the page: <hr> (1px line + 20px margins), a spacer, a coloured bar.
+// Dropping it when its wrapper is split into sections shifted everything below by its height + margins.
+const tinyKeep = (k) => {
+  if (k.sr || k.r[3] >= 8 || kids(k).length || ownText(k)) return false;
+  const s = k.s || {};
+  if (s.position === 'absolute' || s.position === 'fixed' || s.display === 'none') return false;
+  const m = s.margin || [0, 0, 0, 0];
+  return k.t === 'hr' || k.r[3] >= 1 || !!(m[0] || m[2]) || hasBox(k);
+};
 
-export function detectSections(root, vh) {
-  let container = root;
+// info (optional out-param): base = single-child containers descended from <body> (they wrap header/footer too),
+// wrapOf = section node -> wrappers that were expanded into sections (outermost first). Their own box/layout styles
+// (max-width, padding, grid columns of a sidebar layout…) must be re-created around the sections — see pageFile().
+// info.inline = tiny leaves (tinyKeep) between sections: { node, before: index of the next section, wrap: [wrappers] }.
+// subtree size (capped) — a wrapper with hundreds of nodes is split into its children instead of becoming one huge
+// component that hits the per-section code limit (an app dashboard: the whole main column was one section)
+const HEAVY = 150;
+function weightOf(n, memo) {
+  if (memo.has(n)) return memo.get(n);
+  let c = 0; const st = [n];
+  while (st.length && c <= 4000) { const x = st.pop(); c++; for (const k of kids(x)) st.push(k); }
+  memo.set(n, c); return c;
+}
+// >= 3 siblings of one shape making >= 60% of the children: a card grid / list, never split into sections
+function repeatKids(ks) {
+  if (ks.length < 3) return false;
+  const cnt = new Map(); for (const k of ks) { const sg = shapeSig(k); cnt.set(sg, (cnt.get(sg) || 0) + 1); }
+  const bc = Math.max(...cnt.values());
+  return bc >= 3 && bc >= ks.length * 0.6;
+}
+export function detectSections(root, vh, info = null) {
+  const memo = new Map();
+  let container = root; const base = [];
   for (let d = 0; d < 10; d++) {
     const ks = kids(container).filter((k) => k.r[3] >= 8 && !k.sr);
-    if (ks.length === 1 && !['header', 'footer', 'nav', 'section'].includes(ks[0].t) && ks[0].r[3] > vh * 0.5) container = ks[0];
+    if (ks.length === 1 && !['header', 'footer', 'nav', 'section'].includes(ks[0].t) && ks[0].r[3] > vh * 0.5) { container = ks[0]; base.push(container); }
     else break;
   }
-  let list = kids(container).filter((k) => !k.sr && (k.r[3] >= 8 || ['header', 'nav'].includes(k.t)));
+  const wrapOf = new Map();
+  const tiny = new Set();
+  let list = kids(container).filter((k) => { if (tinyKeep(k)) { tiny.add(k); return true; } return !k.sr && (k.r[3] >= 8 || ['header', 'nav'].includes(k.t)); });
   for (let pass = 0; pass < 6; pass++) {
     let changed = false; const out = [];
     for (const n of list) {
+      if (tiny.has(n)) { out.push(n); continue; }
       const ks = kids(n).filter((k) => !k.sr && k.r[3] >= 8);
       const big = ks.filter((k) => k.r[3] >= 120);
       const semantic = ['header', 'footer', 'nav'].includes(n.t);
@@ -21,14 +54,28 @@ export function detectSections(root, vh) {
         n.t === 'main' ||
         (n.t === 'section' && ks.filter((k) => k.t === 'section').length >= 2) ||
         (['div', 'article'].includes(n.t) && n.r[3] > vh * 1.5 && big.length >= 2 && (!hasBox(n) || big.length >= 3)) ||
-        (['div', 'article'].includes(n.t) && ks.some((k) => ['header', 'footer', 'section', 'main'].includes(k.t)) && big.length >= 2)
+        (['div', 'article'].includes(n.t) && ks.some((k) => ['header', 'footer', 'section', 'main'].includes(k.t)) && big.length >= 2) ||
+        (['div', 'article', 'section', 'main', 'aside'].includes(n.t) && ks.length <= 12 && weightOf(n, memo) > HEAVY && !repeatKids(ks))
       );
-      if (expand) { out.push(...ks); changed = true; } else out.push(n);
+      if (expand) {
+        const w = [...(wrapOf.get(n) || []), n];
+        for (const k of kids(n)) {
+          if (ks.includes(k)) { wrapOf.set(k, w); out.push(k); } else if (tinyKeep(k)) { wrapOf.set(k, w); tiny.add(k); out.push(k); }
+        }
+        changed = true;
+      } else out.push(n);
     }
     list = out;
     if (!changed) break;
   }
-  return list;
+  // tiny leaves at the edges of the page / runs of them are fine; a page made of tiny leaves only is not a page
+  const sections = list.filter((n) => !tiny.has(n));
+  if (info) {
+    info.base = base; info.wrapOf = wrapOf;
+    info.inline = []; let idx = 0;
+    for (const n of list) { if (tiny.has(n)) info.inline.push({ node: n, before: idx, wrap: wrapOf.get(n) || [] }); else idx++; }
+  }
+  return sections;
 }
 
 export const PRICE_RE = /(?:[$€£₽¥]\s?\d|\d[\d\s.,]*\s?(?:₽|руб|р\.|\$|€|USD|EUR)|\/\s?(?:mo|month|yr|year|мес|год)\b|per (?:month|year|user))/i;

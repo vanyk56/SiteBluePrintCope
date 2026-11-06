@@ -5,6 +5,8 @@ import { isDirty, mapCssUrls } from './cssvars.mjs';
 const DISPLAY = { flex: 'flex', 'inline-flex': 'inline-flex', grid: 'grid', 'inline-grid': 'inline-grid', block: 'block', 'inline-block': 'inline-block', inline: 'inline', none: 'hidden', contents: 'contents', 'list-item': 'list-item', table: 'table', 'table-row': 'table-row', 'table-cell': 'table-cell', 'flow-root': 'flow-root', 'table-row-group': 'table-row-group', 'table-header-group': 'table-header-group' };
 const JUSTIFY = { 'flex-start': 'justify-start', start: 'justify-start', left: 'justify-start', center: 'justify-center', 'flex-end': 'justify-end', end: 'justify-end', right: 'justify-end', 'space-between': 'justify-between', 'space-around': 'justify-around', 'space-evenly': 'justify-evenly', stretch: 'justify-stretch', normal: 'justify-normal' };
 const ITEMS = { 'flex-start': 'items-start', start: 'items-start', 'self-start': 'items-start', center: 'items-center', 'flex-end': 'items-end', end: 'items-end', 'self-end': 'items-end', baseline: 'items-baseline', 'first baseline': 'items-baseline', stretch: 'items-stretch', normal: 'items-stretch' };
+const VALIGN = { baseline: 'align-baseline', top: 'align-top', middle: 'align-middle', bottom: 'align-bottom', 'text-top': 'align-text-top', 'text-bottom': 'align-text-bottom', sub: 'align-sub', super: 'align-super' };
+export const PREFLIGHT_MEDIA = /^(img|svg|video|canvas|audio|iframe|embed|object)$/;
 const SELF = { 'flex-start': 'self-start', start: 'self-start', center: 'self-center', 'flex-end': 'self-end', end: 'self-end', baseline: 'self-baseline', stretch: 'self-stretch' };
 const TEXT = { 12: 'xs', 14: 'sm', 16: 'base', 18: 'lg', 20: 'xl', 24: '2xl', 30: '3xl', 36: '4xl', 48: '5xl', 60: '6xl', 72: '7xl', 96: '8xl', 128: '9xl' };
 const WEIGHT = { 100: 'thin', 200: 'extralight', 300: 'light', 400: 'normal', 500: 'medium', 600: 'semibold', 700: 'bold', 800: 'extrabold', 900: 'black' };
@@ -18,6 +20,16 @@ const ROOT_SKIP = { cursor: 'auto', 'text-align': 'start', 'text-transform': 'no
 
 export const arb = (v) => String(v).trim().replace(/_/g, '\\_').replace(/\s+/g, '_');
 const firstFamily = (stack) => String(stack || '').split(',')[0].replace(/["']/g, '').trim();
+// full fallback chain for arbitrary families: a Latin-only webfont + Cyrillic text renders the missing glyphs with the NEXT family in the stack —
+// dropping it makes the browser fall back to its default (serif) font. Keeps ≤5 families, always keeps the generic one.
+const GENERIC_FAMILY = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-sans-serif|ui-serif|ui-monospace|ui-rounded|emoji|math|fangsong)$/i;
+export function familyStack(stack) {
+  const parts = String(stack || '').split(',').map((x) => x.trim().replace(/"/g, "'")).filter(Boolean);
+  if (!parts.length) return '';
+  const head = parts.slice(0, 5), gen = parts.find((x) => GENERIC_FAMILY.test(x));
+  if (gen && !head.includes(gen)) head.push(gen);
+  return head.map((x) => (/^'.*'$/.test(x) || GENERIC_FAMILY.test(x) || /^-?[a-z][\w-]*$/i.test(x) ? x : `'${x.replace(/'/g, '')}'`)).join(',');
+}
 function sp(px) { const a = Math.abs(px); if (a === 0) return '0'; if (a === 1) return 'px'; const n = a / 4; if (Number.isInteger(n) || [0.5, 1.5, 2.5, 3.5].includes(n)) return String(n); return `[${fmt(a)}px]`; }
 const spc = (prefix, px) => (px < 0 ? '-' : '') + prefix + '-' + sp(px);
 function box(prefix, [t, r, b, l], explicit) {
@@ -52,8 +64,19 @@ function gridCols(v) {
   if (!tr.length || tr.some((x) => !/^-?[\d.]+px$/.test(x))) return `grid-cols-[${arb(v)}]`;
   const px = tr.map(parseFloat); const min = Math.min(...px), max = Math.max(...px);
   if (max - min <= 2) return `grid-cols-${px.length}`;
-  if (px.length === 2 && min < 420) return px[0] < px[1] ? `grid-cols-[${Math.round(px[0])}px_1fr]` : `grid-cols-[1fr_${Math.round(px[1])}px]`;
-  return `grid-cols-[${px.map((x) => fmt(Math.round((x / min) * 2) / 2) + 'fr').join('_')}]`;
+  // minmax(0,…): a bare 1fr has an automatic min-content minimum, so a long <pre> line or URL widens its track and squeezes
+  // the neighbours (a docs sidebar came out 4px narrower and shifted the whole article)
+  if (px.length === 2 && min < 420) return px[0] < px[1] ? `grid-cols-[${Math.round(px[0])}px_minmax(0,1fr)]` : `grid-cols-[minmax(0,1fr)_${Math.round(px[1])}px]`;
+  // exact proportions (1.1fr 1fr stays 1.1fr 1fr: rounding to halves made a hero text column 26px narrower → extra line wrap)
+  return `grid-cols-[${px.map((x) => `minmax(0,${fmt(Math.round((x / min) * 100) / 100)}fr)`).join('_')}]`;
+}
+const countersCls = (c) => [c.reset && `[counter-reset:${arb(c.reset)}]`, c.set && `[counter-set:${arb(c.set)}]`, c.inc && `[counter-increment:${arb(c.inc)}]`].filter(Boolean).join(' ');
+// grid-row-start/-end pairs of a pseudo item: "span 2 / auto" -> row-span-2, "1 / -1" -> row-span-full, "2 / 4" -> start/end
+function gridPair(kind, v) {
+  const [a, b] = String(v).split('/').map((x) => x.trim());
+  if (/^span \d+$/.test(a) && (!b || b === 'auto')) return `${kind}-span-${a.slice(5)}`;
+  if (/^span \d+$/.test(b || '') && a === 'auto') return `${kind}-span-${b.slice(5)}`;
+  return gridSpan(kind, `${a} / ${b || 'auto'}`);
 }
 function gridSpan(kind, v) {
   let m = /span (\d+)/.exec(v); if (m) return `${kind}-span-${m[1]}`;
@@ -86,6 +109,13 @@ function insetCls(ins, explicit) {
 }
 
 const FR = [[50, '1/2'], [33.3333, '1/3'], [66.6667, '2/3'], [25, '1/4'], [75, '3/4'], [20, '1/5'], [40, '2/5'], [60, '3/5'], [80, '4/5'], [16.6667, '1/6'], [83.3333, '5/6']];
+function autoTrack(kind, v) {
+  v = String(v).trim();
+  if (v === 'min-content') return `auto-${kind}-min`;
+  if (v === 'max-content') return `auto-${kind}-max`;
+  if (v === 'minmax(0px, 1fr)') return `auto-${kind}-fr`;
+  return `auto-${kind}-[${arb(v)}]`;
+}
 export function authoredLen(kind, v) {
   v = String(v).trim();
   if (v === '100%') return kind + '-full';
@@ -118,7 +148,7 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
   };
   const INH = {
     textColor: (e) => (e['-webkit-text-fill-color'] === '#00000000' ? 'text-transparent' : col('text', e.color)),
-    fontFamily: (e) => { const f = firstFamily(e['font-family']); return fontMap[f] ? `font-${fontMap[f]}` : `font-['${arb(f)}']`; },
+    fontFamily: (e) => { const f = firstFamily(e['font-family']); if (fontMap[f]) return `font-${fontMap[f]}`; const st = familyStack(e['font-family']); return st.includes(',') ? `font-[${arb(st)}]` : GENERIC_FAMILY.test(f) ? `font-[${f}]` : `font-['${arb(f)}']`; },
     fontSize: (e) => { const fs = e['font-size']; return `${TEXT[fs] ? 'text-' + TEXT[fs] : `text-[${fmt(fs)}px]`} ${leadingCls(e['line-height'])}`; },
     fontWeight: (e) => (WEIGHT[e['font-weight']] ? `font-${WEIGHT[e['font-weight']]}` : `font-[${e['font-weight']}]`),
     tracking: (e) => trackingCls(e['letter-spacing']),
@@ -144,7 +174,7 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
     const s = n.s || {}; const g = {};
     if (s.margin) {
       let [t, r, b, l] = s.margin; let auto = false;
-      if (parent && r > 0 && Math.abs(r - l) <= 1 && n.r[2] < parent.r[2] - 2) {
+      if (parent && r > 0 && Math.abs(r - l) <= 1 && n.r[2] < parent.r[2] - 2 && !s.mfix) { // mfix: re-resolving as auto moved the box
         const pp = (parent.s && parent.s.padding) || [0, 0, 0, 0];
         const lg = n.r[0] - parent.r[0] - pp[3], rg = parent.r[0] + parent.r[2] - (n.r[0] + n.r[2]) - pp[1];
         if (Math.abs(lg - rg) <= 2) auto = true;
@@ -169,15 +199,42 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
     if (s['flex-wrap']) g.flexWrap = s['flex-wrap'] === 'wrap' ? 'flex-wrap' : s['flex-wrap'] === 'wrap-reverse' ? 'flex-wrap-reverse' : 'flex-nowrap';
     if (s['justify-content']) g.justify = JUSTIFY[s['justify-content']] || `justify-[${arb(s['justify-content'])}]`;
     if (s['align-items']) g.items = ITEMS[s['align-items']] || `items-[${arb(s['align-items'])}]`;
-    if (s['grid-template-columns']) g.gridCols = gridCols(s['grid-template-columns']);
+    if (s['grid-template-columns']) {
+      // authored template (validated in the page to resolve to the same tracks) beats px→fr ratios: exact at any width
+      const c = gridCols(s['grid-template-columns']);
+      g.gridCols = s.gcv && (c.includes('[') || /auto-(fill|fit)/.test(s.gcv)) ? `grid-cols-[${arb(s.gcv)}]` : c;
+    }
     if (s['grid-auto-flow']) g.gridFlow = `grid-flow-${s['grid-auto-flow'].replace(' dense', '-dense').replace('column', 'col')}`;
+    if (s['grid-template-areas']) g.gridAreas = `[grid-template-areas:${arb(s['grid-template-areas'].replace(/"/g, "'"))}]`;
+    if (s['grid-auto-rows']) g.autoRows = autoTrack('rows', s['grid-auto-rows']);
+    if (s['grid-auto-columns']) g.autoCols = autoTrack('cols', s['grid-auto-columns']);
+    if (s['grid-area']) g.area = `[grid-area:${arb(s['grid-area'])}]`;
+    if (s.counters) g.counters = countersCls(s.counters);
+    if (s.table) {
+      const sp = s.table.sp ? String(s.table.sp).trim().split(/\s+/) : null;
+      const spc = !s.table.sep ? '' : !sp ? 'border-spacing-0' : sp.length < 2 || sp[0] === sp[1] ? `border-spacing-[${arb(sp[0])}]` : `border-spacing-x-[${arb(sp[0])}] border-spacing-y-[${arb(sp[1])}]`;
+      g.table = [s.table.sep && 'border-separate', spc, s.table.fixed && 'table-fixed', s.table.cap === 'bottom' && 'caption-bottom'].filter(Boolean).join(' ');
+    }
+    {
+      const tx = [];
+      if (s['text-overflow']) tx.push(s['text-overflow'] === 'ellipsis' ? 'text-ellipsis' : `[text-overflow:${arb(s['text-overflow'])}]`);
+      if (s['word-break']) tx.push({ 'break-all': 'break-all', 'keep-all': 'break-keep' }[s['word-break']] || `[word-break:${arb(s['word-break'])}]`);
+      if (s['overflow-wrap']) tx.push(`[overflow-wrap:${arb(s['overflow-wrap'])}]`);
+      if (s['text-wrap']) tx.push(s['text-wrap'] === 'balance' ? 'text-balance' : 'text-pretty');
+      if (tx.length) g.textWrap = tx.join(' ');
+    }
+    if (s.appearance) g.appearance = s.appearance === 'native' ? '[border:revert]' : 'appearance-none';
+    if (s['accent-color']) g.accent = col('accent', s['accent-color']);
+    if (s.float) g.float = `float-${s.float === 'inline-start' ? 'start' : s.float === 'inline-end' ? 'end' : s.float}`;
+    if (s.clear) g.clear = `clear-${s.clear === 'inline-start' ? 'start' : s.clear === 'inline-end' ? 'end' : s.clear}`;
     if (s['grid-column']) g.colSpan = gridSpan('col', s['grid-column']);
     if (s['grid-row']) g.rowSpan = gridSpan('row', s['grid-row']);
     if (s['flex-grow'] !== undefined || s['flex-shrink'] !== undefined || s['flex-basis'] !== undefined) g.flex = flexCls(s);
     if (s['align-self']) g.self = SELF[s['align-self']] || `self-[${arb(s['align-self'])}]`;
     if (s.order !== undefined) g.order = s.order < 0 ? `-order-[${-s.order}]` : `order-[${s.order}]`;
     // sizes (w/h are only present when the size is intrinsic/explicit: replaced, leaf, positioned, or set by an authored CSS rule)
-    const insetFull = s.inset && s.inset.every((v) => v === 0) && (typeof n.ai !== 'string' || n.ai.length === 4);
+    // inset-0 stretches a non-replaced box, but img/video/canvas/iframe keep their intrinsic size -> they still need w/h
+    const insetFull = s.inset && s.inset.every((v) => v === 0) && (typeof n.ai !== 'string' || n.ai.length === 4) && !PREFLIGHT_MEDIA.test(t);
     // positioned boxes with text shrink-to-fit: when authored CSS is known and gives no size, don't freeze the measured px
     const shrink = typeof n.ai === 'string' && /^(absolute|fixed)$/.test(s.position || '') && !/^(img|svg|video|canvas|iframe|input|textarea|select|picture)$/.test(t);
     const auS = n.au || '';
@@ -186,7 +243,7 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
     if (!insetFull && (s.w !== undefined || s.h !== undefined)) {
       const pp = parent && parent.s && parent.s.padding ? parent.s.padding : [0, 0, 0, 0];
       const pw = parent ? parent.r[2] - pp[1] - pp[3] : 0;
-      const full = s.w !== undefined && parent && s.w > 40 && Math.abs(s.w - pw) <= 1.5;
+      const full = s.w !== undefined && parent && s.w > 40 && Math.abs(s.w - pw) <= 1.5 && !s.wpx; // wpx: authored px width in effect
       const isIcon = t === 'svg' || (s.w !== undefined && s.h !== undefined && s.w <= 160 && s.h <= 160);
       const au = n.au || '';
       const wCls = () => { const a = s.wv ? authoredLen('w', s.wv) : ''; if (a) return a; if (full) return 'w-full'; if (isIcon && s.h !== undefined && Math.abs(s.w - s.h) < 0.6) return Number.isInteger(s.w / 4) ? `size-${s.w / 4}` : `size-[${fmt(s.w)}px]`; return Number.isInteger(s.w / 4) && s.w <= 384 ? `w-${s.w / 4}` : `w-[${fmt(s.w)}px]`; };
@@ -237,6 +294,10 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
       g.bgImg = out.join(' ');
     }
     if (s['background-clip'] === 'text') g.bgClip = 'bg-clip-text';
+    else if (s['background-clip']) g.bgClip = `[background-clip:${arb(s['background-clip'])}]`;
+    if (s['background-origin']) g.bgOrigin = `[background-origin:${arb(s['background-origin'])}]`;
+    if (s.isolation) g.isolation = 'isolate';
+    if (s['mask-image']) g.mask = [vars && isDirty(s['mask-image']) ? `[mask-image:var(${vars.add('mask', s['mask-image'])})]` : `[mask-image:${arb(s['mask-image'])}]`, s['mask-size'] ? `[mask-size:${arb(s['mask-size'])}]` : '', s['mask-position'] ? `[mask-position:${arb(s['mask-position'])}]` : '', s['mask-repeat'] ? `[mask-repeat:${arb(s['mask-repeat'])}]` : ''].filter(Boolean).join(' ');
     if (s['box-shadow']) g.shadow = shadowMap[s['box-shadow']] ? `shadow-${shadowMap[s['box-shadow']]}` : `shadow-[${arb(s['box-shadow'])}]`;
     const anim = animatedProps(s);
     if (s.opacity !== undefined && !/opacity/.test(anim)) { const o = Math.round(s.opacity * 100); g.opacity = o % 5 === 0 ? `opacity-${o}` : `opacity-[${s.opacity}]`; }
@@ -249,6 +310,7 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
     if (s['clip-path']) g.clip = vars && isDirty(s['clip-path']) ? `[clip-path:var(${vars.add('clip', s['clip-path'])})]` : `[clip-path:${arb(s['clip-path'])}]`;
     if (s['aspect-ratio']) { const a = s['aspect-ratio'].replace(/\s+/g, ''); g.aspect = a === '16/9' ? 'aspect-video' : a === '1/1' || a === '1' ? 'aspect-square' : `aspect-[${a}]`; }
     if (s['object-fit']) g.objectFit = `object-${s['object-fit']}`;
+    if (s['vertical-align'] !== undefined) { const va = s['vertical-align']; if (!(PREFLIGHT_MEDIA.test(t) && va === 'middle')) g.valign = VALIGN[va] || (typeof va === 'number' ? `align-[${fmt(va)}px]` : `align-[${arb(String(va))}]`); }
     if (s['object-position']) g.objectPos = s['object-position'] === '50% 0%' ? 'object-top' : `object-[${arb(s['object-position'])}]`;
     if (s['list-style-type']) g.list = s['list-style-type'] === 'disc' ? 'list-disc' : s['list-style-type'] === 'decimal' ? 'list-decimal' : `list-[${arb(s['list-style-type'])}]`;
     if (s['list-style-position'] === 'inside') g.list = (g.list || '') + ' list-inside';
@@ -271,11 +333,40 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
     if (n.sr) g.sr = 'sr-only';
     if (n.pb) g.before = pseudoCls('before', n.pb);
     if (n.pa) g.after = pseudoCls('after', n.pa);
+    if (n.fl) g.firstLetter = textPseudoCls('first-letter', n.fl);
+    if (n.mk) g.marker = textPseudoCls('marker', n.mk);
+    if (n.ph) g.placeholder = `placeholder:${col('text', n.ph)}`;
+    if (s.columns) {
+      const c = s.columns; const out = [];
+      out.push(c.count && c.width ? `[columns:${fmt(c.width)}px_${c.count}]` : c.count ? `columns-${c.count}` : `columns-[${fmt(c.width)}px]`);
+      if (c.gap !== undefined) out.push(spc('gap-x', c.gap));
+      if (c.rule) out.push(`[column-rule:${arb(c.rule)}]`);
+      g.columns = out.join(' ');
+    }
+    if (s['break-inside']) g.breakInside = /^(avoid|avoid-page|avoid-column)$/.test(s['break-inside']) ? `break-inside-${s['break-inside']}` : `[break-inside:${arb(s['break-inside'])}]`;
     return g;
+  }
+  // text-only pseudo elements (::first-letter drop cap, ::marker): typography + float/box of the first letter
+  function textPseudoCls(prefix, o) {
+    const out = [];
+    if (o.float) out.push(`float-${o.float}`);
+    if (o.color) out.push(col('text', o.color));
+    if (o.fontSize) out.push(`text-[${fmt(o.fontSize)}px]`);
+    if (o.lh !== undefined) out.push(o.lh === 'normal' ? 'leading-[normal]' : `leading-[${fmt(o.lh)}px]`);
+    if (o.fontWeight) out.push(WEIGHT[o.fontWeight] ? `font-${WEIGHT[o.fontWeight]}` : `font-[${o.fontWeight}]`);
+    if (o.fontStyle) out.push(o.fontStyle === 'italic' ? 'italic' : 'not-italic');
+    if (o.fontFamily) { const st = familyStack(o.fontFamily); out.push(st.includes(',') ? `font-[${arb(st)}]` : GENERIC_FAMILY.test(st) ? `font-[${st}]` : `font-['${arb(st.replace(/'/g, ''))}']`); }
+    if (o.tt) out.push({ uppercase: 'uppercase', lowercase: 'lowercase', capitalize: 'capitalize', none: 'normal-case' }[o.tt] || '');
+    if (o.padding) out.push(box('p', o.padding, false));
+    if (o.margin) out.push(box('m', o.margin, false));
+    if (o.bg) out.push(col('bg', o.bg));
+    return out.join(' ').split(/\s+/).filter(Boolean).map((c) => `${prefix}:${c}`).join(' ');
   }
   function pseudoCls(prefix, p) {
     const out = [];
-    const content = p.content === '""' || p.content === "''" ? "''" : "'" + p.content.replace(/^["']|["']$/g, '').replace(/'/g, "\\'") + "'";
+    // counter()/counters()/attr() and mixed values ("Шаг " counter(step)) stay CSS: the clone counts by itself
+    const fnContent = /\b(counters?|attr)\(/.test(p.content);
+    const content = p.content === '""' || p.content === "''" ? "''" : fnContent ? p.content.replace(/\s*,\s*/g, ',') : "'" + p.content.replace(/^["']|["']$/g, '').replace(/'/g, "\\'") + "'";
     out.push(vars && isDirty(content) ? `content-(${vars.add('content', content)})` : `content-[${arb(content)}]`);
     if (p.position && p.position !== 'static') out.push(p.position);
     if (p.inset) out.push(insetCls(p.inset));
@@ -283,15 +374,35 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
     if (p.w !== undefined) out.push(typeof p.w === 'number' ? `w-[${fmt(p.w)}px]` : `w-[${arb(p.w)}]`);
     if (p.h !== undefined) out.push(typeof p.h === 'number' ? `h-[${fmt(p.h)}px]` : `h-[${arb(p.h)}]`);
     if (p.bg) out.push(col('bg', p.bg));
-    if (p.bgi) out.push(bgImg(p.bgi, false));
+    if (p.bgi) out.push(bgImg(p.bgi));
+    if (p.bgs) out.push(p.bgs === 'cover' ? 'bg-cover' : p.bgs === 'contain' ? 'bg-contain' : `bg-[length:${arb(p.bgs)}]`);
+    if (p.bgp) out.push({ '50% 50%': 'bg-center', 'center center': 'bg-center', '50% 0%': 'bg-top', '50% 100%': 'bg-bottom' }[p.bgp] || `bg-[position:${arb(p.bgp)}]`);
+    if (p.bgr) out.push({ 'no-repeat': 'bg-no-repeat', 'repeat-x': 'bg-repeat-x', 'repeat-y': 'bg-repeat-y' }[p.bgr] || `[background-repeat:${arb(p.bgr)}]`);
+    if (p.flex) out.push(flexCls({ 'flex-grow': p.flex[0], 'flex-shrink': p.flex[1], 'flex-basis': p.flex[2] }));
+    if (p.gcol) out.push(gridPair('col', p.gcol));
+    if (p.grow) out.push(gridPair('row', p.grow));
+    if (p.counters) out.push(countersCls(p.counters));
+    if (p.self) out.push({ 'flex-start': 'self-start', start: 'self-start', 'flex-end': 'self-end', end: 'self-end', center: 'self-center', stretch: 'self-stretch', baseline: 'self-baseline' }[p.self] || `self-[${arb(p.self)}]`);
+    if (p.order !== undefined) out.push(p.order < 0 ? `-order-${-p.order}` : `order-${p.order}`);
+    if (p.z !== undefined && !Number.isNaN(p.z)) out.push(`z-[${p.z}]`);
+    if (p.blend) out.push(`mix-blend-${p.blend}`);
+    if (p.mask) out.push(`[mask-image:${arb(p.mask)}]`);
     if (p.radius !== undefined) out.push(typeof p.radius === 'number' ? (p.radius >= 999 ? 'rounded-full' : `rounded-[${fmt(p.radius)}px]`) : `rounded-[${arb(p.radius)}]`);
     if (p.shadow) out.push(`shadow-[${arb(p.shadow)}]`);
     if (p.opacity !== undefined) out.push(`opacity-[${p.opacity}]`);
     if (p.transform) out.push(transformCls(p.transform));
     if (p.filter) out.push(filterCls(p.filter));
     if (p.border) out.push(`[border:${arb(p.border)}]`);
+    if (p.clear) out.push(`clear-${p.clear}`);
+    if (p.float) out.push(`float-${p.float}`);
     if (p.color) out.push(col('text', p.color));
     if (p.fontSize) out.push(`text-[${p.fontSize}px]`);
+    if (p.fontFamily) { const st = familyStack(p.fontFamily); out.push(st.includes(',') ? `font-[${arb(st)}]` : GENERIC_FAMILY.test(st) ? `font-[${st}]` : `font-['${arb(st.replace(/'/g, ''))}']`); }
+    if (p.fontWeight) out.push(WEIGHT[p.fontWeight] ? `font-${WEIGHT[p.fontWeight]}` : `font-[${p.fontWeight}]`);
+    if (p.lh !== undefined) out.push(p.lh === 'normal' ? 'leading-[normal]' : `leading-[${fmt(p.lh)}px]`);
+    if (p.fontStyle) out.push(p.fontStyle === 'italic' ? 'italic' : 'not-italic');
+    if (p.tt) out.push({ uppercase: 'uppercase', lowercase: 'lowercase', capitalize: 'capitalize', none: 'normal-case' }[p.tt] || '');
+    if (p.ls !== undefined) out.push(`tracking-[${fmt(p.ls)}px]`);
     if (p.margin) out.push(box('m', p.margin, false));
     return out.join(' ').split(/\s+/).filter(Boolean).map((c) => `${prefix}:${c}`).join(' ');
   }
@@ -302,7 +413,7 @@ export function createTw(tokens, { vh = 900, assetUrl = (u) => u, vars = null } 
       if (k === 'color') out.push(col('text', to)); else if (k === 'bg') out.push(col('bg', to)); else if (k === 'border') out.push(col('border', to));
       else if (k === 'shadow') out.push(!to || to === 'none' ? 'shadow-none' : shadowMap[to] ? `shadow-${shadowMap[to]}` : `shadow-[${arb(to)}]`); else if (k === 'opacity') out.push(`opacity-[${to}]`);
       else if (k === 'transform') out.push(to ? transformCls(to) : 'transform-none'); else if (k === 'decoration') out.push(to.includes('underline') ? 'underline' : 'no-underline');
-      else if (k === 'filter') out.push(to ? filterCls(to) : 'filter-none'); else if (k === 'bgi') out.push(to ? bgImg(to, false) : 'bg-none');
+      else if (k === 'filter') out.push(to ? filterCls(to) : 'filter-none'); else if (k === 'bgi') out.push(to ? bgImg(to) : 'bg-none');
       else if (k === 'scale' && to) out.push(`scale-[${to.split(' ')[0]}]`); else if (k === 'translate' && to) out.push(`translate-[${arb(to)}]`);
     }
     return out.join(' ').split(/\s+/).filter(Boolean).map((c) => `hover:${c}`).join(' ');

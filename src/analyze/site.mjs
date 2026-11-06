@@ -34,7 +34,7 @@ function preparePage(rec) {
   const raw = rec.raw;
   markImages(raw.tree, raw.images || []);
   if (rec.mobile && rec.mobile.raw && rec.mobile.raw.tree) markImages(rec.mobile.raw.tree, rec.mobile.raw.images || []);
-  const { eff, sections } = analyzeSections(raw);
+  const { eff, sections, base, inline } = analyzeSections(raw);
   const { parent, byId } = indexTree(raw.tree);
   pathMap(raw.tree);
   let mob = null;
@@ -42,7 +42,7 @@ function preparePage(rec) {
     const mr = rec.mobile.raw; const E = computeEffective(mr.tree);
     mob = { raw: mr, E, P: indexTree(mr.tree).parent, map: pathMap(mr.tree), bodyEff: E.get(mr.tree.i) || {}, truncated: !!(mr.stats && mr.stats.truncated) };
   }
-  return { rec, raw, eff, parent, byId, sections, mob, slug: rec.slug };
+  return { rec, raw, eff, parent, byId, sections, base, inline, mob, slug: rec.slug };
 }
 
 const iconKey = (markup) => markup.replace(/^<svg\b[^>]*>/, (m) => m.replace(/\s(width|height)="[^"]*"/g, ''));
@@ -121,7 +121,7 @@ export function buildSite(data, opts = {}) {
 
   const used = new Set(['Page', 'RootLayout', 'Link', 'Image', ...icons.map((i) => i.name)]);
   const nameFor = (type, prefix) => { const base = BASE[type] || 'Section'; let n = base; if (used.has(n) && prefix) n = base.startsWith(prefix) ? base.replace(/Section$/, '') + 'PageSection' : prefix + base; const b = n; let i = 2; while (used.has(n)) n = b + i++; used.add(n); return n; };
-  const components = []; const bySig = new Map(); const globals = [];
+  const components = []; const bySig = new Map(); const globals = []; let layoutWrap = [];
   // hover results are keyed by element signature; shared elements are probed once per crawl, so merge all pages
   const hoverAll = new Map();
   for (const p of P) for (const h of (p.rec.probes && p.rec.probes.hover) || []) if (!hoverAll.has(h.sig)) hoverAll.set(h.sig, h);
@@ -144,7 +144,7 @@ export function buildSite(data, opts = {}) {
       if (links.length) menu = { links, bg: opaqueHex(bst.bg) || tokens.roles.background || '#ffffff', fg: opaqueHex(bst.color) || tokens.roles.foreground || '#111111' };
     }
     const ctx = {
-      tw, bp, vw: raw.viewport.w, vp: { w: raw.viewport.w, h: raw.viewport.h }, E: p.eff, P: p.parent, bodyEff: p.eff.get(raw.tree.i) || {}, mob: p.mob, maxChars: opts.maxSectionChars || 40000,
+      tw, bp, vw: raw.viewport.w, vp: { w: raw.viewport.w, h: raw.viewport.h }, E: p.eff, P: p.parent, bodyEff: p.eff.get(raw.tree.i) || {}, mob: p.mob, maxChars: opts.maxSectionChars || 80000,
       current: null,
       iconFor: (N, isMob) => { const rec = N.svg >= 0 ? (isMob ? p.mobSvgRecs : p.svgRecs)[N.svg] : null; if (!rec) return { big: true }; if (ctx.current) rec.where.add(ctx.current); return { name: rec.name }; },
       imgFor: (N, isMob) => { const im = (isMob ? p.mob.raw.images : raw.images)[N.img]; if (!im) return null; return { src: im.local || assetsBy.get(im.src) || im.src, alt: im.alt, lazy: im.lazy }; },
@@ -177,16 +177,19 @@ export function buildSite(data, opts = {}) {
     const sk = createSkeleton(ctx);
     p.blocks = [];
     const prefix = p === home ? '' : pascal(p.slug.replace(/__/g, ' '), 3);
-    const firstContent = p.sections.findIndex((s) => !(GLOBAL_TYPES.has(s.type) && globalSigs.has(s._sig)));
+    // a header/footer inside an expanded wrapper (a sidebar/TOC column of a grid layout) is not a layout-level global:
+    // it stays in the page so that the wrapper (grid columns, max-width) can be re-created around it
+    const globalOf = (s) => GLOBAL_TYPES.has(s.type) && globalSigs.has(s._sig) && !(s.wrap && s.wrap.length);
+    const firstContent = p.sections.findIndex((s) => !globalOf(s));
     for (const s of p.sections) {
-      const isGlobal = GLOBAL_TYPES.has(s.type) && globalSigs.has(s._sig);
+      const isGlobal = globalOf(s);
       if (bySig.has(s._sig)) { const c = bySig.get(s._sig); c.usedOn.add(p.slug); if (!isGlobal) p.blocks.push({ comp: c, section: s, reused: true }); continue; }
       const name = nameFor(s.type, prefix);
       ctx.current = name;
       const r = sk.renderSection({ node: s.node, type: s.type, repeats: s.repeats, name });
       ctx.current = null;
       // tabs / catalog filters / add-to-cart in data templates -> working client state
-      const enh = enhanceSection(sk.sectionFile(r), r, { tabGroups: (p.rec.probes && p.rec.probes.tabGroups) || [], lang: opts.lang || 'ru', catalogTools: opts.catalogTools !== false, cart: !!cart });
+      const enh = enhanceSection(sk.sectionFile(r), r, { tabGroups: (p.rec.probes && p.rec.probes.tabGroups) || [], lang: opts.lang || 'ru', catalogTools: opts.catalogTools === true, cart: !!cart });
       r.features = enh.features; r.isClient = enh.client; r.client = [...new Set([...(r.client || []), ...enh.uses])].sort();
       const comp = {
         name, type: s.type, global: isGlobal, position: isGlobal ? (firstContent < 0 || s.index < firstContent ? 'top' : 'bottom') : null,
@@ -199,11 +202,47 @@ export function buildSite(data, opts = {}) {
       components.push(comp); bySig.set(s._sig, comp);
       if (isGlobal) globals.push(comp); else p.blocks.push({ comp, section: s });
     }
+    // wrappers expanded into sections -> re-created in page.tsx (only those that carry classes); base containers
+    // (they also wrap header/footer) -> app/layout.tsx, taken from the home page
+    p.wraps = new Map();
+    const wrapOf = (id) => {
+      if (!p.wraps.has(id)) { const n = p.byId.get(id); const cls = n ? sk.wrapperClass(n) : ''; p.wraps.set(id, cls ? { tag: n.t, cls } : null); }
+      return p.wraps.get(id);
+    };
+    for (const b of p.blocks) b.wrap = (b.section.wrap || []).filter((id) => wrapOf(id));
+    // tiny leaves between sections (<hr>, spacers) -> plain elements in page.tsx, placed before block `at`
+    p.inlines = [];
+    for (const x of p.inline || []) {
+      const n = p.byId.get(x.id); if (!n) continue;
+      const at = p.blocks.findIndex((b) => b.section.index >= x.before);
+      p.inlines.push({ at: at < 0 ? p.blocks.length : at, tag: n.t, cls: sk.wrapperClass(n), wrap: (x.wrap || []).filter((id) => wrapOf(id)) });
+    }
+    if (p === home) layoutWrap = (p.base || []).map((id) => wrapOf(id)).filter(Boolean);
+  }
+  // the page column of an app shell (div.main { flex: 1; min-width: 0 } next to a sidebar) wraps every block of every page:
+  // its classes go onto <main> in app/layout.tsx — a bare <main> around it would be the flex item and "flex-1" a no-op
+  let layoutMain = null;
+  {
+    const outer = (p) => {
+      const items = [...p.blocks, ...(p.inlines || [])];
+      if (!items.length) return null;
+      const w0 = items[0].wrap && items[0].wrap[0];
+      if (w0 === undefined || !items.every((b) => b.wrap && b.wrap[0] === w0)) return null;
+      const n = p.byId.get(w0); const par = n ? p.parent.get(n.i) : null;
+      const baseId = (p.base || []).length ? p.base[p.base.length - 1] : p.raw.tree.i;
+      if (!par || par.i !== baseId) return null;
+      return { id: w0, ...p.wraps.get(w0) };
+    };
+    const all = P.map(outer);
+    if (all.every((w) => w && w.cls === all[0].cls)) {
+      layoutMain = { cls: all[0].cls };
+      P.forEach((p, i) => { const id = all[i].id; for (const b of [...p.blocks, ...(p.inlines || [])]) if (b.wrap && b.wrap[0] === id) b.wrap = b.wrap.slice(1); });
+    }
   }
   const keyframesUsed = new Set();
-  for (const c of components) for (const m of c.code.matchAll(/animate-\[([A-Za-z0-9_-]+?)_/g)) keyframesUsed.add(m[1]);
+  for (const c of components) for (const m of c.code.matchAll(/animate-\[([A-Za-z0-9_-]+?)(?:_|\])/g)) keyframesUsed.add(m[1]);
   const usesCart = components.some((c) => /<(CartButton|AddToCart)\b/.test(c.code));
-  return { origin, crawl, pages: P, home, tokens, bp, tw, icons, routes, components, globals, cssInfo, keyframesUsed, linkFor, cssVars, cart: usesCart ? cart || {} : null };
+  return { origin, crawl, pages: P, home, tokens, bp, tw, icons, routes, components, globals, layoutWrap, layoutMain, cssInfo, keyframesUsed, linkFor, cssVars, cart: usesCart ? cart || {} : null };
 }
 
 // ---- deterministic facts about a section (for the blueprint & the LLM) ----

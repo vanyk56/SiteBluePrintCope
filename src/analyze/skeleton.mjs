@@ -1,7 +1,7 @@
 // Renders a detected section as a ready-to-use Next.js/React component (TSX) with Tailwind classes:
 // exact texts, local asset paths, mobile-first responsive classes, hover states, repeated items -> data + .map().
 import { kids, textOf, walkTree } from './tree.mjs';
-import { INH_GROUP_KEYS, arb } from './tailwind.mjs';
+import { INH_GROUP_KEYS, PREFLIGHT_MEDIA, arb } from './tailwind.mjs';
 import { cssHex, colorsToHex, sha } from '../util.mjs';
 import { PRICE_RE } from './sections.mjs';
 import { ADD_TO_CART_RE, clientImports, dialogProps, isCartDialog } from '../output/interactive.mjs';
@@ -20,13 +20,13 @@ export function expectedDisplay(t) {
   return INLINE.has(t) ? 'inline' : 'block';
 }
 const DISPLAY_CLS = { flex: 'flex', 'inline-flex': 'inline-flex', grid: 'grid', 'inline-grid': 'inline-grid', block: 'block', 'inline-block': 'inline-block', inline: 'inline', contents: 'contents', 'list-item': 'list-item', table: 'table', 'table-row': 'table-row', 'table-cell': 'table-cell', 'flow-root': 'flow-root', 'table-row-group': 'table-row-group', 'table-header-group': 'table-header-group', 'table-footer-group': 'table-footer-group', 'table-caption': 'table-caption' };
-const KNOWN = new Set('a abbr address article aside b blockquote button caption cite code dd del details dfn div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i input ins kbd label legend li main mark nav ol optgroup option p pre q s samp section select small span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var picture dialog menu search hgroup address'.split(' '));
+const KNOWN = new Set('a abbr address article aside b blockquote button caption cite code dd del details dfn div dl dt em fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr i input ins kbd label legend li main mark nav ol optgroup option p pre q s samp section select small span strong sub summary sup table tbody td textarea tfoot th thead time tr u ul var picture dialog menu search hgroup address progress meter output'.split(' '));
 const VOID = new Set(['input', 'hr', 'img']);
-const ORDER = ['display', 'position', 'inset', 'z', 'flexDir', 'flexWrap', 'justify', 'items', 'gridCols', 'gridFlow', 'colSpan', 'rowSpan', 'flex', 'self', 'order', 'w', 'h', 'maxW', 'minW', 'maxH', 'minH', 'm', 'p', 'gap',
+const ORDER = ['display', 'position', 'inset', 'z', 'counters', 'float', 'clear', 'flexDir', 'flexWrap', 'justify', 'items', 'gridCols', 'gridAreas', 'autoRows', 'autoCols', 'gridFlow', 'area', 'colSpan', 'rowSpan', 'flex', 'self', 'order', 'w', 'h', 'maxW', 'minW', 'maxH', 'minH', 'm', 'p', 'gap',
   'fontFamily', 'fontSize', 'fontWeight', 'tracking', 'italic', 'textAlign', 'textTransform', 'whitespace', 'textColor', 'textShadow', 'cursor',
-  'border', 'rounded', 'bg', 'bgImg', 'bgClip', 'shadow', 'opacity', 'overflow', 'clamp', 'transform', 'filter', 'backdrop', 'blend', 'clip', 'aspect', 'objectFit', 'objectPos', 'list', 'decoration', 'transition', 'animation', 'sr', 'before', 'after', 'hover'];
+  'border', 'rounded', 'bg', 'bgImg', 'bgClip', 'bgOrigin', 'mask', 'isolation', 'shadow', 'opacity', 'overflow', 'clamp', 'transform', 'filter', 'backdrop', 'blend', 'clip', 'aspect', 'objectFit', 'objectPos', 'valign', 'table', 'list', 'decoration', 'textWrap', 'appearance', 'accent', 'columns', 'breakInside', 'transition', 'animation', 'sr', 'before', 'after', 'firstLetter', 'marker', 'placeholder', 'hover'];
 const ORD = Object.fromEntries(ORDER.map((k, i) => [k, i]));
-const EXTRA_RESET = { bgClip: 'bg-clip-border', blend: 'mix-blend-normal', clip: '[clip-path:none]', objectPos: 'object-center', animation: 'animate-none', gridFlow: 'grid-flow-row', before: 'before:hidden', after: 'after:hidden' };
+const EXTRA_RESET = { table: 'border-collapse table-auto caption-top', textWrap: 'text-clip break-normal [overflow-wrap:normal] text-wrap', appearance: 'appearance-auto', accent: 'accent-auto', counters: '[counter-reset:none] [counter-increment:none]', columns: 'columns-auto [column-rule:none]', breakInside: 'break-inside-auto', bgOrigin: '[background-origin:padding-box]', mask: '[mask-image:none]', isolation: 'isolation-auto', float: 'float-none', clear: 'clear-none', gridAreas: '[grid-template-areas:none]', autoRows: 'auto-rows-auto', autoCols: 'auto-cols-auto', area: '[grid-area:auto]', bgClip: 'bg-clip-border', blend: 'mix-blend-normal', clip: '[clip-path:none]', objectPos: 'object-center', animation: 'animate-none', gridFlow: 'grid-flow-row', before: 'before:hidden', after: 'after:hidden' };
 const displayOf = (n) => (n.s && n.s.display) || expectedDisplay(n.t);
 const inlineLevel = (d) => /^inline/.test(d) || d === 'contents';
 
@@ -111,7 +111,7 @@ export function createSkeleton(ctx) {
   const effM = (n) => mob.E.get(n.i) || {};
   const parentEffD = (n, isRoot) => { if (isRoot) return ctx.bodyEff; const p = ctx.P.get(n.i); return p ? effD(p) : ctx.bodyEff; };
   const parentEffM = (n, isRoot) => { if (isRoot) return mob.bodyEff; const p = mob.P.get(n.i); return p ? effM(p) : mob.bodyEff; };
-  const resetFor = (k, D) => (k === 'display' ? DISPLAY_CLS[expectedDisplay(D.t)] || 'block' : tw.RESET[k] ?? EXTRA_RESET[k] ?? '');
+  const resetFor = (k, D) => (k === 'display' ? DISPLAY_CLS[expectedDisplay(D.t)] || 'block' : k === 'valign' ? (PREFLIGHT_MEDIA.test(D.t) ? 'align-middle' : 'align-baseline') : tw.RESET[k] ?? EXTRA_RESET[k] ?? '');
 
   // ---- classes: returns [[group, classString], ...] sorted ----
   function classPairs(en, mode, isRoot) {
@@ -129,6 +129,10 @@ export function createSkeleton(ctx) {
       const { D, M } = en;
       const eD = effD(D), eM = effM(M), peD = parentEffD(D, isRoot), peM = parentEffM(M, isRoot);
       const gD = tw.groups(D, eD, peD, ctx.P.get(D.i)), gM = tw.groups(M, eM, peM, mob.P.get(M.i));
+      // size-11 on one side vs w-…/h-… on the other: compare as w + h, otherwise "lg:h-auto" would undo lg:size-11
+      const isSize = (g) => /^size-/.test(g.w || '') && !g.h;
+      const splitSize = (g) => { if (isSize(g)) { const v = g.w.slice(5); g.w = 'w-' + v; g.h = 'h-' + v; } return g; };
+      if ((isSize(gD) || isSize(gM)) && gD.w !== gM.w) { splitSize(gD); splitSize(gM); }
       let gDx = null;
       for (const k of new Set([...Object.keys(gM), ...Object.keys(gD)])) {
         if (INH_GROUP_KEYS[k]) continue;
@@ -136,7 +140,7 @@ export function createSkeleton(ctx) {
         if (k === 'm' && b && /\bmx-auto\b/.test(b) && !/\b-?m[xlr]-/.test(a || '')) { const a2 = ['mx-auto', a || ''].join(' ').trim(); if (a2 === b || !a) a = a2; }
         if (a === b) { push(k, a); continue; }
         let dv;
-        if (b) { if (!gDx) gDx = tw.groups(D, eD, peD, ctx.P.get(D.i), { explicit: true }); dv = gDx[k] || b; if (k === 'p' || k === 'm') dv = pruneZeros(dv, a, k); } else dv = resetFor(k, D);
+        if (b) { if (!gDx) { gDx = tw.groups(D, eD, peD, ctx.P.get(D.i), { explicit: true }); if (!/^size-/.test(gD.w || '')) splitSize(gDx); } dv = gDx[k] || b; if (k === 'p' || k === 'm') dv = pruneZeros(dv, a, k); } else dv = resetFor(k, D);
         push(k, [a, pre(dv, prefixFor(D, M, k))].filter(Boolean).join(' '));
       }
       for (const [k, keys] of Object.entries(INH_GROUP_KEYS)) {
@@ -160,15 +164,33 @@ export function createSkeleton(ctx) {
   function childEntries(en, mode) {
     if (mode === 'both') {
       const { D, M } = en;
-      const mKids = kids(M); const mBy = new Map(mKids.map((k) => [k._p, k]));
-      const dPaths = new Set(kids(D).map((k) => k._p));
-      const mobOnly = mKids.filter((k) => !dPaths.has(k._p) && k.r[3] > 0).sort((a, b) => a.n - b.n);
+      const mKids = kids(M);
+      const dKids = kids(D);
+      const mBy = new Map(mKids.map((k) => [k._p, k]));
+      const matchedM = new Map();
+      const usedM = new Set();
+      // Pass 1: exact path + tag match (unless text strongly disagrees and another sibling matches text)
+      for (const k of dKids) {
+        const m = mBy.get(k._p);
+        if (m && m.t === k.t) {
+          const tk = normT(textOf(k, 160)), tm = normT(textOf(m, 160));
+          const textClash = tk && tm && tk !== tm && mKids.some((x) => !usedM.has(x) && x.t === k.t && normT(textOf(x, 160)) === tk);
+          if (!textClash) { matchedM.set(k, m); usedM.add(m); }
+        }
+      }
+      // Pass 2: fallback sibling match by tag + text/href when a mobile-only node shifted sibling indices
+      for (const k of dKids) {
+        if (matchedM.has(k)) continue;
+        const tk = normT(textOf(k, 160));
+        const cand = mKids.find((x) => !usedM.has(x) && x.t === k.t && ((tk && normT(textOf(x, 160)) === tk) || (k.href && x.href === k.href)));
+        if (cand) { matchedM.set(k, cand); usedM.add(cand); }
+      }
+      const mobOnly = mKids.filter((k) => !usedM.has(k) && k.r[3] > 0).sort((a, b) => a.n - b.n);
       const out = []; let mi = 0;
       for (const k of D.k || []) {
         if (typeof k === 'string') { out.push({ text: k }); continue; }
         while (mi < mobOnly.length && mobOnly[mi].n < k.n) out.push({ D: null, M: mobOnly[mi++] });
-        const m = mBy.get(k._p);
-        out.push({ D: k, M: m && m.t === k.t ? m : null });
+        out.push({ D: k, M: matchedM.get(k) || null });
       }
       while (mi < mobOnly.length) out.push({ D: null, M: mobOnly[mi++] });
       return out;
@@ -266,6 +288,8 @@ export function createSkeleton(ctx) {
     if (A.placeholder) a.push(st.slots ? slotAttr(st, 'placeholder', A.placeholder, 'placeholder') : jsxAttr('placeholder', A.placeholder));
     if (A.required) a.push('required');
     if (A.value !== undefined && N.t === 'input') a.push(jsxAttr(/submit|button|reset/.test(A.type || '') ? 'value' : 'defaultValue', A.value));
+    if (A.value !== undefined && (N.t === 'progress' || N.t === 'meter')) a.push(`value={${Number(A.value) || 0}}`);
+    for (const k of ['min', 'max', 'step', 'low', 'high', 'optimum']) if (A[k] !== undefined && /^(input|progress|meter)$/.test(N.t) && /^-?[\d.]+$/.test(A[k])) a.push(`${k}={${Number(A[k])}}`);
     if (A.checked) a.push('defaultChecked');
     if (A.for) a.push(jsxAttr('htmlFor', A.for));
     if (A.datetime) a.push(st.slots ? slotAttr(st, 'dateTime', A.datetime, 'datetime') : jsxAttr('dateTime', A.datetime));
@@ -386,7 +410,7 @@ export function createSkeleton(ctx) {
     const lines = [];
     const rep = !isMob && !st.slots ? st.sh.repeats.get(N.i) : null;
     const repIds = rep ? new Set(rep.itemIds) : null;
-    let repDone = false;
+    const repSeen = new Set();
     // nested list inside a repeated item (footer column links, plan features) -> item.links.map(...)
     const inRep = !isMob && st.slots && !st.inList && st.sh.innerRepeats ? st.sh.innerRepeats.get(N.i) : null;
     const inIds = inRep ? new Set(inRep.itemIds) : null;
@@ -394,11 +418,12 @@ export function createSkeleton(ctx) {
     for (const e of entries) {
       if (st.sh.used > st.sh.cap) { if (!st.sh.capHit) { lines.push(ind + '  ' + comment('… секция усечена по лимиту размера — остальное смотри на скриншоте и в dom/*.html')); st.sh.capHit = true; } break; }
       if (repIds && e.D && repIds.has(e.D.i)) {
-        if (repDone) continue;
-        repDone = true;
-        const items = entries.filter((x) => x.D && repIds.has(x.D.i)).map((x) => ({ en: x, mode: childMode(x, mode) }));
-        lines.push(renderRepeat(items, ind + '  ', st, disp));
-        continue;
+        if (repSeen.has(e)) continue;
+        // contiguous runs only: a separator or a group label between the items keeps its place
+        // (nav: 4 links, divider, «Teams», 3 links — one .map() would move the divider below all seven)
+        const run = [];
+        for (let j = entries.indexOf(e); j < entries.length; j++) { const x = entries[j]; if (x.D && repIds.has(x.D.i)) { run.push(x); repSeen.add(x); } else break; }
+        if (run.length > 1) { lines.push(renderRepeat(run.map((x) => ({ en: x, mode: childMode(x, mode) })), ind + '  ', st, disp)); continue; }
       }
       if (inIds && !inFailed && e.D && inIds.has(e.D.i)) {
         if (inDone) continue;
@@ -592,10 +617,37 @@ export function createSkeleton(ctx) {
     const multi = sorted.filter((g) => g.length >= 2);
     const singles = sorted.filter((g) => g.length === 1).map((g) => g[0]).sort((a, b) => a - b);
     const parts = []; let firstTpl = null;
-    multi.forEach((g, gi) => {
-      const code = template(g);
-      if (!firstTpl) firstTpl = { ...st.sh.lastTpl };
-      parts.push(`${ind}${comment(`вариант ${gi + 1} из ${multi.length + singles.length}: ${g.length} шт., позиции в исходнике ${posList(g.map((i) => i + 1))}`)}\n${code}`);
+    // every variant with 2+ items -> its own data array + template; the markup keeps the SOURCE ORDER: each .map() renders
+    // only its index range (i >= a && i < b) and differently styled single items stand between them at their positions
+    // (a grid of cards with "Sale" / "New" / "Sold out" variants must not be regrouped by variant)
+    const tpls = multi.map((g) => { const code = template(g); const tpl = { ...st.sh.lastTpl }; const L = code.split('\n'); return { g, code, L, hm: /^(\s*)\{(\w+)\.map\(\(item, i\) => \($/.exec(L[0]), tpl }; });
+    if (tpls.length) firstTpl = tpls[0].tpl;
+    if (tpls.length && tpls.every((t) => t.hm)) {
+      const owner = new Map(); tpls.forEach((t, ti) => t.g.forEach((idx, k) => owner.set(idx, { ti, k })));
+      const segs = [];
+      for (let idx = 0; idx < items.length; idx++) {
+        const o = owner.get(idx); const last = segs[segs.length - 1];
+        if (!o) segs.push({ single: idx });
+        else if (last && last.ti === o.ti && last.b === o.k) last.b = o.k + 1;
+        else segs.push({ ti: o.ti, a: o.k, b: o.k + 1 });
+      }
+      const runs = segs.filter((x) => x.ti !== undefined).length;
+      if (runs <= 12 && singles.length <= 6) {
+        parts.push(`${ind}${comment(`${items.length} элементов в ${multi.length + singles.length} вариантах оформления (${multi.map((g) => g.length + ' шт.').concat(singles.length ? [`${singles.length} единичн.`] : []).join(', ')}); порядок как в исходнике — каждый .map() выводит свой диапазон`)}`);
+        const seen = new Set();
+        for (const sg of segs) {
+          if (sg.single !== undefined) { parts.push(`${ind}${comment(`элемент №${sg.single + 1} оформлен иначе остальных (позиция ${sg.single + 1} в исходнике)`)}\n${full([sg.single])}`); continue; }
+          const t = tpls[sg.ti]; const n = t.g.length; const { a, b } = sg;
+          const cond = a === 0 && b === n ? '' : a === 0 ? `i < ${b} && ` : b === n ? `i >= ${a} && ` : b - a === 1 ? `i === ${a} && ` : `i >= ${a} && i < ${b} && `;
+          parts.push([`${t.hm[1]}{${t.hm[2]}.map((item, i) => ${cond}(`, ...t.L.slice(1)].join('\n'));
+          if (seen.has(sg.ti)) st.sh.used += t.code.length; else seen.add(sg.ti);
+        }
+        card(multi.length > 1 || singles.length ? 'mixed' : 'template', { ...(firstTpl || {}) });
+        return parts.join('\n');
+      }
+    }
+    tpls.forEach((t, gi) => {
+      parts.push(`${ind}${comment(`вариант ${gi + 1} из ${multi.length + singles.length}: ${t.g.length} шт., позиции в исходнике ${posList(t.g.map((i) => i + 1))}`)}\n${t.code}`);
     });
     const shown = singles.slice(0, 4), rest = singles.slice(4);
     for (const i of shown) parts.push(`${ind}${comment(`элемент №${i + 1} оформлен иначе остальных (позиция ${i + 1} в исходнике)`)}\n${full([i])}`);
@@ -660,7 +712,7 @@ export function createSkeleton(ctx) {
     // union merge: nodes missing on mobile -> "hidden lg:flex", mobile-only nodes (burger…) -> "lg:hidden"
     if (mob && rootM && rootM.t === root.t && (ratio >= 0.5 || !mob.truncated)) mode = 'both';
     else if (mob && !mob.truncated && !rootM) mode = 'dOnly';
-    const sh = { repeats: new Map((sec.repeats || []).map((g) => [g.containerId, g])), innerRepeats: new Map((sec.repeats || []).flatMap((g) => (g.inner || []).map((x) => [x.containerId, x]))), cards: [], icons: new Set(), link: false, used: 0, cap: ctx.maxChars || 40000, capHit: false, data: [], dataNames: new Set(), type: sec.type, interactive: new Set(), handled: new Set(), client: new Set(), cart: false };
+    const sh = { repeats: new Map((sec.repeats || []).map((g) => [g.containerId, g])), innerRepeats: new Map((sec.repeats || []).flatMap((g) => (g.inner || []).map((x) => [x.containerId, x]))), cards: [], icons: new Set(), link: false, used: 0, cap: ctx.maxChars || 80000, capHit: false, data: [], dataNames: new Set(), type: sec.type, interactive: new Set(), handled: new Set(), client: new Set(), cart: false };
     const jsx = renderEntry({ D: root, M: mode === 'both' ? rootM : null }, mode, '    ', { sh, slots: null, tags: [] }, { isRoot: true });
     const notes = [];
     if (mob && mode === 'd') notes.push('DOM мобильной версии заметно отличается — адаптив делай по мобильному скриншоту.');
@@ -680,5 +732,11 @@ export function createSkeleton(ctx) {
     lines.push(`export function ${r.name}() {`, '  return (', r.jsx, '  );', '}', '');
     return lines.join('\n');
   }
-  return { renderSection, sectionFile };
+  // classes of a wrapper element that is not rendered by any section (main.wrap, a grid layout around sidebar + content)
+  function wrapperClass(D) {
+    const M = mob ? mob.map.get(D._p) : null;
+    const both = !!(M && M.t === D.t);
+    return clsString(classPairs({ D, M: both ? M : null }, both ? 'both' : 'd', true).filter(([k]) => k !== 'hover'));
+  }
+  return { renderSection, sectionFile, wrapperClass };
 }

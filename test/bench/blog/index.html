@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Полевые заметки — журнал о путешествиях</title>
+<meta name="description" content="Журнал о медленных путешествиях: маршруты, заметки и интервью.">
+<style>
+:root { --ink: #1d1b16; --paper: #fbf8f1; --muted: #6f6a5f; --accent: #c2410c; --rule: #e7e0d2; --serif: Georgia, "Times New Roman", serif; }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 var(--serif); }
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
+.wrap { width: min(1180px, 100% - 48px); margin-inline: auto; }
+.masthead { border-bottom: 3px double var(--ink); position: sticky; top: 0; z-index: 5; background: var(--paper); }
+.masthead .wrap { display: flex; align-items: center; gap: 28px; height: 72px; }
+.brand { font: italic 700 clamp(22px, 2.4vw, 30px)/1 var(--serif); letter-spacing: -.01em; }
+.brand b { color: var(--accent); font-style: normal; }
+.menu { display: flex; gap: 22px; font: 600 13px/1 Arial, sans-serif; text-transform: uppercase; letter-spacing: .12em; }
+.menu a:hover { color: var(--accent); }
+.subscribe { margin-left: auto; font: 700 13px/1 Arial, sans-serif; padding: 11px 18px; border: 2px solid var(--ink); border-radius: 999px; letter-spacing: .06em; }
+.subscribe:hover { background: var(--ink); color: var(--paper); }
+.lead { display: grid; grid-template-columns: 1.6fr 1fr; gap: 32px; padding: 36px 0 44px; border-bottom: 1px solid var(--rule); }
+.cover { position: relative; border-radius: 4px; overflow: hidden; aspect-ratio: 16 / 10; }
+.cover img { width: 100%; height: 100%; object-fit: cover; }
+.cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgba(0,0,0,.72)); }
+.cover .cap { position: absolute; left: 28px; right: 28px; bottom: 24px; z-index: 1; color: #fff; }
+.kicker { display: inline-block; font: 700 11px/1 Arial, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #fff; background: var(--accent); padding: 6px 9px; border-radius: 2px; }
+.cover h1 { margin: 12px 0 0; font-size: clamp(28px, 3.4vw, 46px); line-height: 1.08; font-weight: 700; letter-spacing: -.015em; text-wrap: balance; }
+.side-list { counter-reset: n; list-style: none; margin: 0; padding: 0; }
+.side-list li { counter-increment: n; display: grid; grid-template-columns: 44px 1fr; gap: 6px 14px; padding: 16px 0; border-top: 1px solid var(--rule); }
+.side-list li:first-child { border-top: 0; padding-top: 0; }
+.side-list li::before { content: counter(n, decimal-leading-zero); font: 700 26px/1 var(--serif); color: var(--accent); grid-row: span 2; }
+.side-list h3 { margin: 0; font-size: 19px; line-height: 1.3; }
+.side-list p { margin: 0; color: var(--muted); font: 13px/1.5 Arial, sans-serif; }
+.section-title { display: flex; align-items: baseline; gap: 16px; margin: 44px 0 22px; font: 700 13px/1 Arial, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+.section-title::after { content: ""; flex: 1; height: 1px; background: var(--ink); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 30px 26px; }
+.card .ph { aspect-ratio: 4 / 3; border-radius: 3px; overflow: hidden; background: #ddd; }
+.card .ph img { width: 100%; height: 100%; object-fit: cover; }
+.card .tag { margin-top: 14px; font: 700 11px/1 Arial, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+.card h3 { margin: 8px 0 6px; font-size: 21px; line-height: 1.25; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+.byline { display: flex; align-items: center; gap: 10px; margin-top: 12px; font: 12px/1.3 Arial, sans-serif; color: var(--muted); }
+.byline img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.byline span + span::before { content: "·"; margin-right: 10px; }
+.essay { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 56px; margin-top: 56px; padding-top: 40px; border-top: 1px solid var(--rule); }
+.essay h2 { margin: 0 0 18px; font-size: 34px; line-height: 1.15; letter-spacing: -.01em; }
+.essay .body { columns: 2; column-gap: 40px; column-rule: 1px solid var(--rule); }
+.essay .body p { margin: 0 0 14px; }
+.essay .body p:first-child::first-letter { float: left; font-size: 64px; line-height: .9; padding: 6px 8px 0 0; color: var(--accent); font-weight: 700; }
+.pull { position: relative; margin: 30px 0 0; padding: 22px 26px 22px 64px; background: #f3ecdf; border-left: 4px solid var(--accent); font-size: 21px; line-height: 1.45; font-style: italic; }
+.pull::before { content: "\201C"; position: absolute; left: 18px; top: 4px; font-size: 72px; line-height: 1; color: var(--accent); font-style: normal; }
+.pull cite { display: block; margin-top: 10px; font: normal 13px/1.4 Arial, sans-serif; color: var(--muted); }
+aside.facts { position: sticky; top: 96px; align-self: start; border: 1px solid var(--ink); padding: 20px 22px; background: #fff; }
+aside.facts h4 { margin: 0 0 10px; font: 700 12px/1 Arial, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+.facts table { width: 100%; border-collapse: collapse; font: 14px/1.4 Arial, sans-serif; }
+.facts td { padding: 8px 0; border-bottom: 1px dotted #bbb; vertical-align: top; }
+.facts td:last-child { text-align: right; font-weight: 700; }
+.facts tr:last-child td { border-bottom: 0; }
+.faq { margin-top: 56px; max-width: 760px; }
+.faq details { border-top: 1px solid var(--rule); padding: 16px 0; }
+.faq details:last-child { border-bottom: 1px solid var(--rule); }
+.faq summary { cursor: pointer; list-style: none; font-size: 20px; font-weight: 700; display: flex; justify-content: space-between; gap: 20px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font: 400 26px/1 Arial, sans-serif; color: var(--accent); }
+.faq details[open] summary::after { content: "–"; }
+.faq details p { margin: 10px 0 0; color: var(--muted); }
+.letter { margin: 64px 0 0; padding: 48px clamp(20px, 6vw, 80px); background: var(--ink); color: var(--paper); text-align: center; border-radius: 6px; }
+.letter h2 { margin: 0; font-size: clamp(26px, 3vw, 38px); line-height: 1.2; }
+.letter p { margin: 10px auto 22px; max-width: 46ch; color: #cfc8b8; }
+.letter form { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.letter input { width: min(340px, 100%); height: 48px; border: 0; border-radius: 999px; padding: 0 20px; font: 15px Arial, sans-serif; }
+.letter button { height: 48px; padding: 0 26px; border: 0; border-radius: 999px; background: var(--accent); color: #fff; font: 700 14px Arial, sans-serif; letter-spacing: .04em; }
+.colophon { margin-top: 64px; padding: 40px 0 28px; border-top: 3px double var(--ink); font: 14px/1.6 Arial, sans-serif; }
+.colophon .cols { display: flex; flex-wrap: wrap; gap: 28px 56px; }
+.colophon .cols > div { flex: 1 1 180px; }
+.colophon h5 { margin: 0 0 8px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
+.colophon ul { list-style: none; margin: 0; padding: 0; color: var(--muted); }
+.colophon .legal { margin-top: 28px; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 900px) {
+  .lead { grid-template-columns: 1fr; }
+  .essay { grid-template-columns: 1fr; gap: 32px; }
+  .essay .body { columns: 1; }
+  aside.facts { position: static; }
+}
+@media (max-width: 640px) {
+  .menu { display: none; }
+  .masthead .wrap { height: 60px; }
+  .cover .cap { left: 18px; right: 18px; bottom: 16px; }
+  .wrap { width: calc(100% - 32px); }
+}
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">
+    <a class="brand" href="/">Полевые <b>заметки</b></a>
+    <nav class="menu"><a href="/routes">Маршруты</a><a href="/people">Люди</a><a href="/food">Еда</a><a href="/maps">Карты</a></nav>
+    <a class="subscribe" href="#letter">Подписаться</a>
+  </div>
+</header>
+<main class="wrap">
+  <section class="lead">
+    <a class="cover" href="/story/tundra">
+      <img src="/img/wide.jpg" alt="Тундра на рассвете" width="1600" height="900">
+      <div class="cap"><span class="kicker">Репортаж</span><h1>Три недели в тундре: как живут оленеводы на краю карты</h1></div>
+    </a>
+    <ol class="side-list">
+      <li><h3><a href="/s/1">Поезд через Саяны: двое суток без связи</a></h3><p>Маршрут · 12 минут чтения</p></li>
+      <li><h3><a href="/s/2">Рыбный рынок в Мурманске в пять утра</a></h3><p>Еда · 7 минут чтения</p></li>
+      <li><h3><a href="/s/3">Почему мы перестали летать на короткие расстояния</a></h3><p>Колонка · 9 минут чтения</p></li>
+      <li><h3><a href="/s/4">Карта старых маяков Белого моря</a></h3><p>Карты · 5 минут чтения</p></li>
+    </ol>
+  </section>
+  <div class="section-title">Свежие истории</div>
+  <div class="cards">
+    <article class="card"><a class="ph" href="/s/5"><img src="/img/p1.jpg" alt="" width="400" height="300"></a><div class="tag">Маршруты</div><h3><a href="/s/5">Пешком вдоль Чуйского тракта</a></h3><p>Шестьсот километров асфальта, перевалов и придорожных кафе.</p><div class="byline"><img src="/img/avatar1.jpg" alt=""><span>Анна Ветрова</span><span>14 мая</span></div></article>
+    <article class="card"><a class="ph" href="/s/6"><img src="/img/p2.jpg" alt="" width="400" height="300"></a><div class="tag">Люди</div><h3><a href="/s/6">Смотритель маяка, который пишет стихи</a></h3><p>Сорок лет на острове и одна тетрадь на каждую зиму.</p><div class="byline"><img src="/img/avatar2.jpg" alt=""><span>Илья Сомов</span><span>9 мая</span></div></article>
+    <article class="card"><a class="ph" href="/s/7"><img src="/img/p3.jpg" alt="" width="400" height="300"></a><div class="tag">Еда</div><h3><a href="/s/7">Хлеб на закваске в деревне под Вологдой</a></h3><p>Рецепт, который передают вместе с печью.</p><div class="byline"><img src="/img/avatar3.jpg" alt=""><span>Мария Лён</span><span>2 мая</span></div></article>
+    <article class="card"><a class="ph" href="/s/8"><img src="/img/p4.jpg" alt="" width="400" height="300"></a><div class="tag">Карты</div><h3><a href="/s/8">Как нарисовать карту своего района</a></h3><p>Инструменты, слои и немного терпения.</p><div class="byline"><img src="/img/avatar1.jpg" alt=""><span>Анна Ветрова</span><span>28 апреля</span></div></article>
+    <article class="card"><a class="ph" href="/s/9"><img src="/img/p5.jpg" alt="" width="400" height="300"></a><div class="tag">Маршруты</div><h3><a href="/s/9">Байкал зимой: лёд, ветер и тишина</a></h3><p>Что взять с собой и где ночевать.</p><div class="byline"><img src="/img/avatar2.jpg" alt=""><span>Илья Сомов</span><span>21 апреля</span></div></article>
+    <article class="card"><a class="ph" href="/s/10"><img src="/img/p6.jpg" alt="" width="400" height="300"></a><div class="tag">Люди</div><h3><a href="/s/10">Учительница из села на сто жителей</a></h3><p>Пять учеников, одна печь и интернет по расписанию.</p><div class="byline"><img src="/img/avatar3.jpg" alt=""><span>Мария Лён</span><span>15 апреля</span></div></article>
+  </div>
+  <section class="essay">
+    <div>
+      <h2>Медленное путешествие как способ смотреть</h2>
+      <div class="body">
+        <p>Когда едешь медленно, дорога перестаёт быть промежутком между точками. Она становится местом: со своими запахами, разговорами в тамбуре и станциями, названия которых не найти в путеводителях.</p>
+        <p>Мы начали этот журнал, чтобы собирать такие места. Здесь нет рейтингов и списков «десять лучших пляжей» — только истории людей, которые живут там, куда обычно не доезжают.</p>
+        <p>Каждый материал мы готовим неделями: едем сами, возвращаемся, перепроверяем. Иногда история не складывается — и мы честно об этом пишем.</p>
+        <p>Если вам знакомо это чувство — когда хочется не успеть всё, а увидеть что-то одно, — вы наш читатель. Добро пожаловать.</p>
+      </div>
+      <blockquote class="pull">Дорога, которую проезжаешь за два дня, помнится дольше, чем перелёт за два часа.<cite>— из письма читателя, Петрозаводск</cite></blockquote>
+    </div>
+    <aside class="facts">
+      <h4>Журнал в цифрах</h4>
+      <table>
+        <tr><td>Историй опубликовано</td><td>412</td></tr>
+        <tr><td>Регионов</td><td>63</td></tr>
+        <tr><td>Авторов</td><td>38</td></tr>
+        <tr><td>Километров в пути</td><td>91 400</td></tr>
+        <tr><td>Подписчиков</td><td>27 000</td></tr>
+      </table>
+    </aside>
+  </section>
+  <section class="faq">
+    <div class="section-title">Вопросы</div>
+    <details><summary>Можно ли прислать свою историю?</summary><p>Да, пишите на редакционную почту: короткое описание, две-три фотографии и пара слов о себе.</p></details>
+    <details><summary>Вы платите авторам?</summary><p>Да, по ставке за знак и отдельно за фотографии. Командировки оплачиваем заранее.</p></details>
+    <details><summary>Есть ли печатная версия?</summary><p>Раз в год мы собираем лучшие материалы в альманах — его можно заказать в магазине.</p></details>
+  </section>
+  <section class="letter" id="letter">
+    <h2>Одно письмо по воскресеньям</h2>
+    <p>Новые истории, маршрут недели и карта, которую мы нарисовали сами. Без рекламы.</p>
+    <form action="/subscribe"><input type="email" placeholder="Ваш e-mail" aria-label="E-mail"><button type="submit">Подписаться</button></form>
+  </section>
+</main>
+<footer class="colophon">
+  <div class="wrap">
+    <div class="cols">
+      <div><h5>Журнал</h5><ul><li>О нас</li><li>Авторы</li><li>Вакансии</li></ul></div>
+      <div><h5>Рубрики</h5><ul><li>Маршруты</li><li>Люди</li><li>Еда</li><li>Карты</li></ul></div>
+      <div><h5>Читателям</h5><ul><li>Подписка</li><li>Альманах</li><li>Магазин</li></ul></div>
+      <div><h5>Связь</h5><ul><li>hello@fieldnotes.example</li><li>Telegram</li><li>RSS</li></ul></div>
+    </div>
+    <div class="legal"><span>© 2026 «Полевые заметки»</span><span>Фото: авторы журнала</span></div>
+  </div>
+</footer>
+</body>
+</html>

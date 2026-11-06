@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Webhooks — Fluxdocs</title>
+<style>
+@font-face { font-family: "Doc Sans"; src: url(/fonts/brand-sans-regular.ttf) format("truetype"); font-weight: 400; }
+@font-face { font-family: "Doc Sans"; src: url(/fonts/brand-sans-bold.ttf) format("truetype"); font-weight: 700; }
+:root { --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --soft: #f6f8fa; --accent: #0969da; --top: 56px; }
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--fg); background: #fff; font: 15px/1.65 "Doc Sans", -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.topbar { position: sticky; top: 0; z-index: 10; height: var(--top); display: flex; align-items: center; gap: 24px; padding: 0 24px; background: rgba(255,255,255,.92); border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
+.logo { font-weight: 700; font-size: 17px; color: var(--fg); display: flex; align-items: center; gap: 8px; }
+.logo svg { width: 22px; height: 22px; }
+.search { margin-left: auto; width: 280px; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); color: var(--muted); font-size: 13px; display: flex; align-items: center; padding: 0 10px; gap: 8px; }
+.search kbd { margin-left: auto; }
+.toplinks { display: flex; gap: 18px; font-size: 14px; }
+.toplinks a { color: var(--muted); }
+.layout { display: grid; grid-template-columns: 264px minmax(0, 1fr) 224px; max-width: 1320px; margin: 0 auto; }
+.sidebar { position: sticky; top: var(--top); height: calc(100vh - var(--top)); overflow-y: auto; padding: 24px 16px 40px 24px; border-right: 1px solid var(--line); font-size: 14px; }
+.sidebar h4 { margin: 18px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.sidebar ul { list-style: none; margin: 0; padding: 0; }
+.sidebar ul ul { padding-left: 14px; border-left: 1px solid var(--line); margin: 2px 0 6px 6px; }
+.sidebar a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--fg); }
+.sidebar a.active { background: #ddf4ff; color: var(--accent); font-weight: 700; }
+.content { padding: 40px 56px 80px; max-width: 840px; }
+.crumbs { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.crumbs span { margin: 0 6px; }
+h1 { font-size: 34px; line-height: 1.2; margin: 0 0 12px; letter-spacing: -.01em; }
+.lead { font-size: 17px; color: var(--muted); margin: 0 0 28px; }
+h2 { font-size: 23px; margin: 44px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 18px; margin: 28px 0 8px; }
+p { margin: 0 0 14px; }
+code { font: 13px/1.5 "Liberation Mono", ui-monospace, monospace; background: rgba(175,184,193,.2); padding: .15em .4em; border-radius: 6px; }
+pre { position: relative; margin: 0 0 18px; padding: 16px 18px; background: #0d1117; color: #e6edf3; border-radius: 10px; overflow-x: auto; font: 13px/1.6 "Liberation Mono", ui-monospace, monospace; }
+pre code { background: none; padding: 0; color: inherit; white-space: pre; }
+pre .t { color: #ff7b72; } pre .s { color: #a5d6ff; } pre .c { color: #8b949e; } pre .n { color: #79c0ff; }
+.tabs { display: flex; gap: 4px; margin: 0; border-bottom: 1px solid #30363d; background: #161b22; border-radius: 10px 10px 0 0; padding: 6px 8px 0; }
+.tabs button { font: inherit; font-size: 13px; color: #8b949e; background: none; border: 0; padding: 6px 12px; border-radius: 6px 6px 0 0; cursor: pointer; }
+.tabs button[aria-selected="true"] { color: #e6edf3; background: #0d1117; }
+.tabs + pre { border-radius: 0 0 10px 10px; }
+.callout { display: flex; gap: 12px; padding: 12px 16px; margin: 0 0 18px; border: 1px solid #54aeff66; border-left: 4px solid var(--accent); background: #ddf4ff80; border-radius: 8px; }
+.callout.warn { border-color: #d4a72c66; border-left-color: #bf8700; background: #fff8c580; }
+.callout b { display: block; margin-bottom: 2px; }
+.callout p { margin: 0; }
+ul.list, ol.list { margin: 0 0 16px; padding-left: 24px; }
+ul.list li, ol.list li { margin: 4px 0; }
+ul.list ul { list-style: circle; padding-left: 22px; margin: 4px 0; }
+ul.list ul ul { list-style: square; }
+table { width: 100%; border-collapse: collapse; margin: 0 0 20px; font-size: 14px; }
+th, td { text-align: left; padding: 8px 12px; border: 1px solid var(--line); vertical-align: top; }
+th { background: var(--soft); font-weight: 700; }
+tbody tr:nth-child(even) td { background: #fbfcfd; }
+td code { white-space: nowrap; }
+kbd { display: inline-block; padding: 1px 6px; font: 11px/1.6 "Liberation Mono", monospace; color: var(--fg); background: var(--soft); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; }
+blockquote { margin: 0 0 18px; padding: 4px 16px; border-left: 4px solid var(--line); color: var(--muted); }
+figure { margin: 0 0 20px; }
+figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; text-align: center; }
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 48px; }
+.pager a { display: block; padding: 14px 18px; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); }
+.pager a:hover { border-color: var(--accent); text-decoration: none; }
+.pager small { display: block; color: var(--muted); font-size: 12px; }
+.pager .next { text-align: right; }
+.toc { position: sticky; top: var(--top); align-self: start; padding: 40px 24px 24px 8px; font-size: 13px; }
+.toc b { display: block; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.toc a { display: block; padding: 3px 0 3px 12px; color: var(--muted); border-left: 2px solid transparent; }
+.toc a.on { color: var(--accent); border-left-color: var(--accent); }
+.toc a.sub { padding-left: 24px; }
+.foot { border-top: 1px solid var(--line); padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
+@media (max-width: 1100px) { .layout { grid-template-columns: 240px minmax(0, 1fr); } .toc { display: none; } }
+@media (max-width: 760px) {
+  .layout { grid-template-columns: minmax(0, 1fr); } .sidebar, .toplinks, .search { display: none; }
+  .content { padding: 24px 18px 56px; } h1 { font-size: 28px; } .pager { grid-template-columns: 1fr; }
+  table { display: block; overflow-x: auto; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="logo" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="#0969da" stroke-width="2.4"><path d="M4 7h16M4 12h10M4 17h6"/></svg>Fluxdocs</a>
+  <nav class="toplinks"><a href="#guides">Guides</a><a href="#api">API reference</a><a href="#changelog">Changelog</a></nav>
+  <div class="search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search docs<kbd>⌘K</kbd></div>
+</header>
+<div class="layout">
+  <aside class="sidebar" aria-label="Docs navigation">
+    <h4>Getting started</h4>
+    <ul><li><a href="#intro">Introduction</a></li><li><a href="#quickstart">Quickstart</a></li><li><a href="#auth">Authentication</a></li></ul>
+    <h4>Events</h4>
+    <ul>
+      <li><a href="#events">Event types</a></li>
+      <li><a href="#webhooks" class="active">Webhooks</a>
+        <ul><li><a href="#endpoints">Endpoints</a></li><li><a href="#signatures">Signatures</a></li><li><a href="#retries">Retries</a>
+          <ul><li><a href="#backoff">Backoff</a></li><li><a href="#dlq">Dead letters</a></li></ul></li></ul>
+      </li>
+      <li><a href="#streams">Event streams</a></li>
+    </ul>
+    <h4>Resources</h4>
+    <ul><li><a href="#customers">Customers</a></li><li><a href="#invoices">Invoices</a></li><li><a href="#payouts">Payouts</a></li><li><a href="#disputes">Disputes</a></li><li><a href="#reports">Reports</a></li></ul>
+    <h4>SDKs</h4>
+    <ul><li><a href="#node">Node.js</a></li><li><a href="#python">Python</a></li><li><a href="#go">Go</a></li><li><a href="#ruby">Ruby</a></li></ul>
+  </aside>
+  <main class="content">
+    <div class="crumbs">Docs<span>/</span>Events<span>/</span>Webhooks</div>
+    <h1>Receiving webhooks</h1>
+    <p class="lead">Webhooks push events to your server as they happen, so you never have to poll the API for changes.</p>
+    <div class="callout"><span>ℹ️</span><div><b>Test mode</b><p>Events created with test keys are delivered only to endpoints registered in test mode.</p></div></div>
+    <h2 id="endpoints">Register an endpoint</h2>
+    <p>An endpoint is an HTTPS URL on your server that accepts <code>POST</code> requests with a JSON body. Register it in the dashboard or with the API:</p>
+    <div class="tabs" role="tablist"><button role="tab" aria-selected="true">cURL</button><button role="tab" aria-selected="false">Node.js</button><button role="tab" aria-selected="false">Python</button></div>
+<pre><code><span class="t">curl</span> https://api.flux.dev/v1/webhook_endpoints \
+  -u <span class="s">sk_test_mock_flux_demo_secret_key_000:</span> \
+  -d url=<span class="s">"https://example.com/hooks/flux"</span> \
+  -d <span class="s">"enabled_events[]=invoice.paid"</span> -d <span class="s">"enabled_events[]=invoice.payment_failed"</span> -d <span class="s">"enabled_events[]=customer.subscription.deleted"</span></code></pre>
+    <p>The response contains the endpoint <code>id</code> and a signing <code>secret</code>. Store the secret — it is shown only once.</p>
+    <h3>Event types</h3>
+    <p>Subscribe only to the events your integration needs:</p>
+    <ul class="list">
+      <li><b>Billing</b>
+        <ul><li><code>invoice.paid</code> — an invoice was paid in full</li><li><code>invoice.payment_failed</code> — a charge attempt failed
+          <ul><li>retried automatically up to 4 times</li><li>the customer gets an email after the last attempt</li></ul></li></ul>
+      </li>
+      <li><b>Customers</b>
+        <ul><li><code>customer.created</code></li><li><code>customer.subscription.deleted</code></li></ul>
+      </li>
+    </ul>
+    <h2 id="signatures">Verify signatures</h2>
+    <p>Every request carries a <code>Flux-Signature</code> header: a timestamp and an HMAC-SHA256 of the payload. Compute the HMAC with your endpoint secret and compare in constant time.</p>
+<pre><code><span class="t">import</span> crypto <span class="t">from</span> <span class="s">'node:crypto'</span>;
+
+<span class="t">export function</span> <span class="n">verify</span>(payload, header, secret) {
+  <span class="t">const</span> [t, v1] = header.split(<span class="s">','</span>).map((p) =&gt; p.split(<span class="s">'='</span>)[<span class="n">1</span>]);
+  <span class="t">const</span> expected = crypto.createHmac(<span class="s">'sha256'</span>, secret).update(<span class="s">`${t}.${payload}`</span>).digest(<span class="s">'hex'</span>);
+  <span class="c">// reject replays older than five minutes</span>
+  <span class="t">if</span> (Math.abs(Date.now() / <span class="n">1000</span> - Number(t)) &gt; <span class="n">300</span>) <span class="t">return false</span>;
+  <span class="t">return</span> crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
+}</code></pre>
+    <div class="callout warn"><span>⚠️</span><div><b>Use the raw body</b><p>Frameworks that parse JSON before your handler change the bytes and break the signature. Read the raw request body.</p></div></div>
+    <h2 id="retries">Retries and ordering</h2>
+    <p>Respond with any <code>2xx</code> status within 10 seconds. Anything else — or a timeout — schedules a retry:</p>
+    <table>
+      <thead><tr><th>Attempt</th><th>Delay</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>immediately</td><td>first delivery</td></tr>
+        <tr><td>2</td><td>5 minutes</td><td>after a non-2xx response or a timeout</td></tr>
+        <tr><td>3</td><td>30 minutes</td><td>the <code>Flux-Retry</code> header carries the attempt number</td></tr>
+        <tr><td>4</td><td>2 hours</td><td>—</td></tr>
+        <tr><td>5</td><td>8 hours</td><td>last attempt, then the event moves to dead letters</td></tr>
+      </tbody>
+    </table>
+    <ol class="list">
+      <li>Return <code>200</code> as soon as the event is stored; process it asynchronously.</li>
+      <li>Deduplicate by <code>event.id</code> — retries deliver the same id.</li>
+      <li>Do not rely on ordering: fetch the object if you need its latest state.</li>
+    </ol>
+    <blockquote>Tip: press <kbd>Shift</kbd> + <kbd>R</kbd> in the dashboard to resend any event to a local tunnel.</blockquote>
+    <figure><img src="/img/shot.png" alt="Webhook delivery log in the dashboard" width="640" height="400"><figcaption>The delivery log shows every attempt with its response code.</figcaption></figure>
+    <div class="pager"><a href="#events"><small>Previous</small>Event types</a><a class="next" href="#streams"><small>Next</small>Event streams</a></div>
+  </main>
+  <nav class="toc" aria-label="On this page"><b>On this page</b><a href="#endpoints" class="on">Register an endpoint</a><a href="#types" class="sub">Event types</a><a href="#signatures">Verify signatures</a><a href="#retries">Retries and ordering</a></nav>
+</div>
+<footer class="foot">© 2025 Flux Payments · <a href="#status">Status</a> · <a href="#support">Support</a></footer>
+</body>
+</html>

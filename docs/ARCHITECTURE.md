@@ -48,8 +48,8 @@
 | `src/net/fetch.mjs` | устойчивая загрузка в стиле HTTrack: backoff + jitter, `Retry-After`, докачка `Range`/`If-Range` и `*.part`, idle-таймаут, лимит размера; `HostThrottle` — параллелизм на хост и интервал, который растёт при 429/503 и снижается при успехе |
 | `src/net/filenames.mjs` | чистые и безопасные для Windows имена: без query, разворачивание image-CDN, транслитерация, ≤ 60 символов |
 | `src/inpage/hooks.mjs` | init-скрипт до скриптов страницы: закрытые shadow root, WebGL с `preserveDrawingBuffer`, шрифты из `new FontFace()` (только наблюдает) |
-| `src/inpage/prepare.mjs` | lazy-картинки → eager, `data-src` → `src`, пошаговый скролл, ожидание шрифтов и картинок, доигрывание анимаций |
-| `src/inpage/extract.mjs` | дерево DOM с computed CSS, токены, шрифты, медиа, SVG, интерактивные элементы |
+| `src/inpage/prepare.mjs` | lazy-картинки → eager, `data-src` → `src`, пошаговый скролл, ожидание шрифтов и картинок, доигрывание анимаций; scroll-reveal по поведению (элементы, которые страница снова прячет, возвращаются в «проявленное» состояние); `freezeMotionInPage` — стоп-кран анимаций для скриншотов оригинала и клона |
+| `src/inpage/extract.mjs` | дерево DOM с computed CSS, токены, шрифты, медиа, SVG, интерактивные элементы; авторские шаблоны сеток (`grid-template-columns` из правил, с проверкой), `::before/::after` (фон, отступы, flex/grid-размещение, счётчики), `::first-letter`, `::marker`, `::placeholder`, CSS-счётчики и колонки, значения `range`/`progress`/`meter` |
 | `src/inpage/probes.mjs` | пробы: вкладки и фильтры, аккордеоны, `<details>`, hover-меню, диалоги и выдвижные панели |
 | `src/inpage/snapshot.mjs` | сериализатор SingleFile: живой DOM + CSSOM, `::before/::after`, Shadow DOM, same-origin iframe, canvas, состояние форм; ресурсы — плейсхолдеры `__SBRES_*` |
 | `src/capture/snapshot.mjs` | Node-часть снимков: `data/snapshots/*.raw.json` → `snapshots/*.html` (локальные ассеты, ссылки между страницами, санитайзер) |
@@ -59,17 +59,20 @@
 | `src/capture/png.mjs` | кропы секций и «листы» для LLM из PNG, пришедших из расширения (pngjs) |
 | `src/capture/import.mjs` | импорт захвата формата v1 в раскладку краулера, догрузка недостающих ассетов (кроме `--offline`) |
 | `src/server/listen.mjs` | локальный приёмник для расширения (безопасность — ниже) |
+| `src/server/mcp.mjs` | MCP-сервер (JSON-RPC 2.0 over stdio) для Cursor, Claude Code, Windsurf (`clone_site`, `extract_design_tokens`, `pick_component`, `heal_project`, `verify_clone`) |
 | `src/sanitize/trackers.mjs` | каталог трекеров, рекламы, колл-трекинга и чат-виджетов: хосты, inline-сигнатуры, извлечение ID счётчиков |
 | `src/sanitize/html.mjs` | санитайзер HTML снимков и DOM: скрипты, гидратация, пиксели, `<base>`, meta refresh/CSP, inline-обработчики, `javascript:` |
-| `src/analyze/*` | `site.mjs` (сборка сайта из страниц), `sections.mjs`, `page.mjs`, `tree.mjs`, `tokens.mjs`, `tailwind.mjs`, `cssvars.mjs` (санитайзер CSS для Tailwind v4 / Lightning CSS), `svg.mjs`, `skeleton.mjs` (TSX), `jsxfix.mjs` |
+| `src/analyze/*` | `site.mjs` (сборка сайта из страниц), `sections.mjs`, `page.mjs`, `tree.mjs`, `tokens.mjs`, `tailwind.mjs`, `cssvars.mjs` (санитайзер CSS для Tailwind v4 / Lightning CSS), `svg.mjs`, `skeleton.mjs` (TSX), `picker.mjs` (автономный TSX-сериализатор компонентов), `jsxfix.mjs` |
 | `src/output/*` | `project.mjs`, `interactive.mjs`, `api.mjs`, `theme.mjs`, `content.mjs`, `zip.mjs` |
 | `src/llm/*` | `client.mjs` (OpenAI-совместимый клиент, vision fallback, повторы), `prompts.mjs`, `run.mjs` (анализ страниц, кэш) |
 | `src/blueprint.mjs` | `SITE_CLONE_BLUEPRINT.md` |
-| `src/verify/*` | `selfcheck.mjs`, `build.mjs`, `server.mjs`, `visual.mjs`, `index.mjs` (команда `verify`); `src/verify.mjs` — совместимый вход |
-| `extension/` | расширение Chrome (ниже и в `extension/README.md`) |
+| `src/verify/*` | `selfcheck.mjs`, `build.mjs`, `server.mjs`, `visual.mjs`, `visual-heal.mjs` (авто-исправление визуального дрейфа секций), `index.mjs` (команда `verify`); `src/verify.mjs` — совместимый вход |
+| `src/launcher/*` | `Launcher.cs` (`site-blueprint.exe` GUI) и `CliLauncher.cs` (`sb.exe` / `site-blueprint-cli.exe` TUI) |
+| `extension/` | расширение Chrome (ниже и в `extension/README.md`, включая интерактивный Component Picker) |
 | `scripts/build-extension.mjs` | генерирует общий с CLI код расширения и синхронизирует версию; `--check` — проверка актуальности |
+| `scripts/build-launchers.mjs` | компилирует нативные Windows-лаунчеры `site-blueprint.exe` и `sb.exe` через `csc.exe` |
 | `examples/plugin-example.mjs` | пример плагина |
-| `test/` | `unit/*.test.mjs` (79 тестов), `run-local-test.mjs` (E2E на фикстуре), `extension-e2e.mjs`, `serve.mjs`, `mock-llm.mjs`, `fixture/` |
+| `test/` | `unit/*.test.mjs` (92 теста), `run-local-test.mjs` (E2E на фикстуре), `benchmark.mjs` + `bench/*` (бенчмарк визуального сходства, 7 фикстур + nimbus), `extension-e2e.mjs`, `serve.mjs`, `mock-llm.mjs`, `fixture/` |
 
 ## Что взято из эталонных проектов
 
@@ -188,12 +191,41 @@ selfcheck.mjs
  │       └─ итерация ничего не изменила → стоп (no progress)
  ├─ server.mjs               next start -p <свободный порт>; остановка всего дерева процессов
  │                           (POSIX — группа процессов, Windows — taskkill /T)
- └─ visual.mjs               скриншоты клона в вьюпортах обхода → pixelmatch (threshold 0.1, учёт сглаживания)
-                             по странице и по полосам секций → verify/visual/*-{clone,diff,compare}.png
+ └─ visual.mjs               скриншоты клона в вьюпортах обхода (reveal + freezeMotion, как у оригинала)
+                             → pixelmatch (threshold 0.1, без сглаживания) с выравниванием по полосам,
+                             строгое сравнение, раскладка текстовых блоков → verify/visual/*-{clone,diff,compare}.png
      ─► VERIFICATION_REPORT.md + verify/selfcheck.json + verify/heal.json; --strict → код выхода 3
 ```
 
 `site-blueprint heal <папка>` запускает тот же этап без перегенерации `project/`. `site-blueprint verify <папка> --url …` (`src/verify/index.mjs`) сверяет уже запущенный клон: секции сопоставляются по текстовым якорям, проверяются пропавшие тексты, битые картинки, 4xx/5xx, ошибки консоли, горизонтальная прокрутка и шрифты. Отчёт — `verify/report.md` и `report.json`.
+
+## Визуальная сверка (`src/verify/visual.mjs`)
+
+Оригинал — скриншоты обхода (`screenshots/{desktop,mobile}/*.png`), клон — скриншоты `next start` в тех же вьюпортах. Обе стороны снимаются одинаково: пошаговый скролл с возвратом scroll-reveal, затем `freezeMotionInPage` (нулевые `transition`/`animation`, без плавной прокрутки и каретки). Метрик три, все считаются по каждой странице и вьюпорту:
+
+| Метрика | Как считается | Что ловит |
+| --- | --- | --- |
+| **по секциям** (`similarity`, основная) | высота оригинала делится на полосы секций (из обхода) и промежутки между ними, каждая часть — на полосы ≤ 600 CSS px. Для каждой полосы ищется вертикальный сдвиг клона `d` по сигнатурам строк (16–64 ячейки средней яркости на строку; однотонные строки не учитываются). Первая полоса части ищет в радиусе `R0 = min(1000, max(64, \|hB − hA\| + 48))` CSS px вокруг сдвига предыдущей полосы, остальные — в `±max(16, 8 % высоты)`. Сдвиг меняется только при явном выигрыше (стоимость < 85 % − 0.3), иначе остаётся прежним | отличия внутри секции; накопленный сдвиг на 2 px не превращает остаток страницы в «красный» |
+| **строгое** (`strict`) | pixelmatch строка в строку без сдвигов; строки клона ниже конца оригинала сравниваются с белым фоном | сдвиги, разницу высоты страницы |
+| **раскладка** (`layout`) | IoU прямоугольников текстовых блоков: дерево обхода (`treeBlocks`) ↔ живой DOM клона (`pageBlocksInPage`); блоки сопоставляются по тексту (k-е вхождение ↔ k-е), вес — площадь (не больше одного экрана), сдвиг клона берётся из выравнивания | перестановки колонок, другую ширину сетки, перенос строк — то, что почти не видно в пикселях |
+
+Правила честности: каждая строка оригинала сравнивается ровно один раз (пропавший контент виден), строки, которых у клона больше, считаются отличающимися; `canvas`, `video` и `iframe` маскируются (не считаются, на картинке отличий — голубые) и их доля пишется в отчёт (`maskedShare`). Картинка `*-compare.png` — «оригинал | клон | отличия» в уменьшенном масштабе.
+
+## Точность вёрстки
+
+Как дерево обхода превращается в разметку, близкую к оригиналу:
+
+- **Обёртки секций.** У каждой секции запоминается цепочка предков до `body` (`main.container`, сетка «сайдбар + статья + TOC», колонка приложения рядом с сайдбаром). `site.mjs` берёт их классы через `skeleton.wrapperClass`, `project.mjs` открывает и закрывает обёртки вокруг подряд идущих секций. Одиночные контейнеры `body` (`#__next`, `.page-wrapper`) оборачивают шапку, контент и подвал в `app/layout.tsx` (`site.layoutWrap`), а колонка, общая для всех страниц и лежащая прямо в базовом контейнере, становится классами `<main>` (`site.layoutMain`).
+- **Мелкие листья между секциями** (`<hr>`, распорки; `tinyKeep` в `sections.mjs`) сохраняются как `inline` и выводятся на своём месте (`p.inlines`), декоративные — с `aria-hidden`.
+- **Тяжёлые обёртки делятся.** Узел тяжелее `HEAVY = 150` (`weightOf`) из `div/article/section/main/aside` с ≤ 12 детьми раскрывается в отдельные секции, если это не список повторов (≥ 3 детей одной формы, ≥ 60 %). Лимит кода секции — 80 000 символов.
+- **Повторы** выводятся непрерывными сериями: разделители и подписи между элементами остаются на месте, одиночный элемент — обычной разметкой.
+- **Сетки.** Авторский `grid-template-columns` берётся из действующих правил и inline-стиля (с подстановкой `var()`), проверяется повторным применением с `!important` и сравнением треков и переносится как `grid-cols-[…]`, если computed-значение не сводится к `grid-cols-N` или в нём есть `auto-fill/auto-fit`. Без авторского шаблона — доли `minmax(0,Xfr)`.
+- **CSS, который переносится дополнительно:** float и clearfix, `columns`/`column-rule`/`break-inside`, `counter-reset/increment/set` и `content: counter()/counters()/attr()`, `::first-letter`, `::marker`, `::placeholder`, у псевдоэлементов — фон (размер, позиция, повтор), маски, `background-clip`, отступы, flex/grid-размещение, `order`; `vertical-align`, `text-overflow`, `word-break`, `overflow-wrap`, `text-wrap: balance/pretty`, `appearance: none`, `accent-color`; у таблиц — `border-collapse: separate`, `border-spacing`, `table-layout: fixed`, `caption-side` (preflight Tailwind по умолчанию делает `collapse`); нативные `progress`/`meter` без авторских рамки и фона получают `[border:revert]` — иначе `border: 0 solid` из preflight переключает Chrome на запасной вид; пробелы в `<pre>` сохраняются как есть.
+- **Проверки поведением вместо догадок по px.** Computed-значения — это уже посчитанные px, поэтому спорные случаи проверяются на живой странице: авторский `grid-template-columns` применяется повторно и сравнивается по трекам; равные боковые отступы центрированного блока временно переводятся в `auto` — если блок сдвинулся или изменил ширину, отступы фиксированные (`s.mfix`, без `mx-auto`); авторская ширина в px, которая действительно применена (`s.wpx`), не заменяется на `w-full` — иначе, например, полоска `width: 120px` в ячейке таблицы схлопывает колонку.
+
+## Бенчмарк (`test/benchmark.mjs`)
+
+Фикстуры `test/bench/*/index.html` (SaaS-лендинг, документация с сайдбаром и TOC, магазин, legacy на Bootstrap 3, bento-сетка, журнал с колонками и счётчиками, дашборд) и многостраничный `test/fixture` (nimbus) раздаются локальным сервером, клонируются без LLM с настоящей `next build`, затем сверяются как выше. Результат — `BENCHMARK.md` и `bench-results.json` (по фикстурам: по секциям / строгое / раскладка, desktop и mobile). Цель по умолчанию `--min 0.85 --avg 0.99` — минимум и среднее по всем снимкам «страница × вьюпорт»; не достигнута — код выхода 1. Новые фикстуры `blog` и `dash` добавлялись уже после основных исправлений и проверяли, что они общие, а не подогнаны под старые.
 
 ## Плагины
 

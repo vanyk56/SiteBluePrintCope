@@ -13,12 +13,87 @@ function stamp(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
 }
-async function ask(q) {
-  if (!stdin.isTTY) return '';
+async function ask(q, { allowPiped = false } = {}) {
+  if (!stdin.isTTY && !allowPiped) return '';
   const rl = readline.createInterface({ input: stdin, output: stdout });
-  try { return (await rl.question(q)).trim(); } finally { rl.close(); }
+  try { return (await rl.question(q)).trim(); } catch { return ''; } finally { rl.close(); }
 }
 const secs = (ms) => (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + ' с';
+
+async function runInteractiveMenu(opts) {
+  const askMenu = (q) => ask(q, { allowPiped: true });
+  console.log(color.cyan(`\n` +
+    `  ╔══════════════════════════════════════════════════════════════════╗\n` +
+    `  ║        ⚡ site-blueprint v${pkg.version} — Простой консольный CLI         ║\n` +
+    `  ╚══════════════════════════════════════════════════════════════════╝\n`));
+  console.log(`  ${color.bold('1.')} 🚀 Клонировать сайт (пошаговая настройка)`);
+  console.log(`  ${color.bold('2.')} ⚡ Быстрый клон (1 страница в Next.js 16 + Tailwind v4)`);
+  console.log(`  ${color.bold('3.')} 🌐 Запустить сервер для расширения Chrome (listen :${opts.port || 3005})`);
+  console.log(`  ${color.bold('4.')} 🔍 Сверить запущенный клон с оригиналом (verify)`);
+  console.log(`  ${color.bold('5.')} 🩹 Собрать проект и починить ошибки (heal)`);
+  console.log(`  ${color.bold('6.')} 📦 Импортировать capture.zip из расширения`);
+  console.log(`  ${color.bold('7.')} 🔌 Запустить MCP-сервер (для Cursor / Claude Code)`);
+  console.log(`  ${color.bold('0.')} ❌ Выход\n`);
+
+  const choice = (await askMenu(color.bold('  Выберите действие [1-7, 0] (по умолч. 1): '))) || '1';
+  if (choice === '0' || choice.toLowerCase() === 'q') {
+    console.log('  До встречи!');
+    return { exit: true, code: 0 };
+  }
+  if (choice === '7') {
+    return { cmd: 'mcp' };
+  }
+  if (choice === '2') {
+    let url = await askMenu(color.bold('  Вставь ссылку на сайт: '));
+    if (!url) { log.error('Не указан URL.'); return { exit: true, code: 2 }; }
+    opts.depth = 1;
+    opts.maxPages = 1;
+    return { cmd: 'crawl', url };
+  }
+  if (choice === '3') {
+    const p = await askMenu(`  Порт (по умолч. ${opts.port || 3005}): `);
+    if (p && /^\d+$/.test(p)) opts.port = Number(p);
+    return { cmd: 'listen' };
+  }
+  if (choice === '4') {
+    const dir = await askMenu('  Папка клона (например output/...): ');
+    const testUrl = (await askMenu('  URL клона (по умолч. http://localhost:3000): ')) || 'http://localhost:3000';
+    opts.url = testUrl;
+    return { cmd: 'verify', arg: dir };
+  }
+  if (choice === '5') {
+    const dir = await askMenu('  Папка клона для исправления (например output/...): ');
+    return { cmd: 'heal', arg: dir };
+  }
+  if (choice === '6') {
+    const zip = await askMenu('  Путь к capture.zip: ');
+    return { cmd: 'import', arg: zip };
+  }
+
+  // Option 1: Full clone
+  let url = await askMenu(color.bold('  Вставь ссылку на сайт: '));
+  if (!url) { log.error('Не указан URL.'); return { exit: true, code: 2 }; }
+
+  const depthStr = await askMenu(`  Глубина обхода (по умолч. ${opts.depth}): `);
+  if (depthStr && /^\d+$/.test(depthStr)) opts.depth = Number(depthStr);
+
+  const pagesStr = await askMenu(`  Максимум страниц (по умолч. ${opts.maxPages}): `);
+  if (pagesStr && /^\d+$/.test(pagesStr)) opts.maxPages = Number(pagesStr);
+
+  const apiStr = await askMenu(`  Создавать API-моки? [Y/n] (по умолч. Да): `);
+  if (/^n/i.test(apiStr)) opts.api = false;
+
+  const snapStr = await askMenu(`  Сохранять SingleFile HTML-снимки? [Y/n] (по умолч. Да): `);
+  if (/^n/i.test(snapStr)) opts.snapshot = false;
+
+  const healStr = await askMenu(`  Проверка и самовосстановление (Heal & Verify)? [Y/n] (по умолч. Да): `);
+  if (/^n/i.test(healStr)) { opts.verify = false; opts.visual = false; }
+
+  const aiStr = await askMenu(`  Использовать AI (LLM для компонентов)? [Y/n] (по умолч. Да): `);
+  if (/^n/i.test(aiStr)) opts.llm = false;
+
+  return { cmd: 'crawl', url };
+}
 
 export async function main(argv = process.argv.slice(2)) {
   loadEnv();
@@ -28,7 +103,42 @@ export async function main(argv = process.argv.slice(2)) {
   const opts = { ...DEFAULTS, ...cli };
   log.setVerbose(!!opts.verbose);
   const t0 = Date.now();
-  const cmd = positional[0];
+  let cmd = positional[0];
+  let url = '';
+
+  // Shorthand: site-blueprint https://example.com 1 5
+  if (cmd && /^https?:\/\//i.test(cmd)) {
+    url = cmd;
+    cmd = 'crawl';
+    if (positional[1] && /^\d+$/.test(positional[1]) && cli.depth === undefined) opts.depth = Number(positional[1]);
+    if (positional[2] && /^\d+$/.test(positional[2]) && cli.maxPages === undefined) opts.maxPages = Number(positional[2]);
+  }
+
+  // Interactive menu if launched with no arguments or --interactive in interactive terminal
+  if ((!cmd && !opts.from && !opts.url && stdin.isTTY) || cli.interactive) {
+    const res = await runInteractiveMenu(opts);
+    if (res.exit) return res.code ?? 0;
+    cmd = res.cmd;
+    if (res.url) url = res.url;
+    if (res.arg) positional[1] = res.arg;
+  }
+  // site-blueprint mcp — Model Context Protocol server over stdio
+  if (cmd === 'mcp') {
+    const { startMcpServer } = await import('./server/mcp.mjs');
+    return startMcpServer();
+  }
+  // site-blueprint pick <dir> [query] — extract a standalone React+Tailwind component (.tsx)
+  if (cmd === 'pick') {
+    const dir = path.resolve(String(positional[1] || opts.from || '.'));
+    if (!(await exists(path.join(dir, 'data', 'crawl.json')))) { log.error(`В ${dir} нет data/crawl.json`); return 2; }
+    const { loadCrawl, buildSite } = await import('./analyze/site.mjs');
+    const { pickSiteComponent } = await import('./analyze/picker.mjs');
+    const site = buildSite(await loadCrawl(dir), opts);
+    const comp = pickSiteComponent(site, positional[2] || '');
+    if (!comp) { log.error('Компонент не найден'); return 1; }
+    console.log(comp.code);
+    return 0;
+  }
   // site-blueprint verify <dir> --url http://localhost:3000 — compare the running clone with the crawl
   if (cmd === 'verify') {
     const { verify } = await import('./verify/index.mjs');
@@ -72,7 +182,7 @@ export async function main(argv = process.argv.slice(2)) {
     crawlSummary = await readJSON(path.join(outDir, 'data', 'crawl.json'));
     log.step(`Пересборка из ${outDir} (без обхода)`);
   } else {
-    let url = (cmd && cmd !== 'crawl' ? cmd : positional[1]) || opts.url || '';
+    if (!url) url = (cmd && cmd !== 'crawl' ? cmd : positional[1]) || opts.url || '';
     if (!url) url = await ask(color.bold('Вставь ссылку на сайт: '));
     if (!url) { console.log(HELP); log.error('Не указан URL.'); return 2; }
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit — Workspace overview</title>
+<meta name="description" content="Team workspace dashboard: revenue, deployments and incidents at a glance.">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #0f172a; background: #f1f5f9; }
+a { color: #4f46e5; }
+.shell { display: flex; min-height: 100vh; }
+.rail { width: 232px; flex: none; background: #0b1020; color: #cbd5e1; padding: 18px 14px; display: flex; flex-direction: column; gap: 4px; }
+.rail .logo { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: 700; font-size: 16px; padding: 4px 8px 18px; }
+.rail .logo i { width: 26px; height: 26px; border-radius: 8px; background: conic-gradient(from 200deg, #6366f1, #22d3ee, #a855f7, #6366f1); display: inline-block; }
+.rail a { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 8px; color: inherit; text-decoration: none; }
+.rail a.on { background: rgba(99,102,241,.18); color: #fff; box-shadow: inset 2px 0 0 #818cf8; }
+.rail a .n { font-size: 11px; font-variant-numeric: tabular-nums; background: #1e293b; padding: 1px 7px; border-radius: 999px; }
+.rail .sep { height: 1px; background: #1e293b; margin: 12px 6px; }
+.rail .group { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #64748b; padding: 0 10px 4px; }
+.main { flex: 1; min-width: 0; }
+.top { height: 60px; display: flex; align-items: center; gap: 14px; padding: 0 28px; background: #fff; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 3; }
+.top h1 { font-size: 17px; margin: 0; }
+.crumbs { color: #64748b; font-size: 13px; }
+.crumbs a { color: inherit; text-decoration: underline; text-decoration-color: #cbd5e1; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.top select { margin-left: auto; height: 34px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 30px 0 10px; background: #fff; font: inherit; }
+.avatars { display: flex; }
+.avatars img { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; margin-left: -9px; object-fit: cover; box-shadow: 0 0 0 1px #e2e8f0; }
+.avatars img:first-child { margin-left: 0; }
+.avatars span { margin-left: -9px; width: 30px; height: 30px; border-radius: 50%; background: #e0e7ff; color: #4338ca; font-size: 11px; font-weight: 700; display: grid; place-items: center; border: 2px solid #fff; }
+.content { padding: 24px 28px 40px; display: grid; gap: 20px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 18px; position: relative; overflow: hidden; }
+.kpi .lbl { color: #64748b; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.kpi .val { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin-top: 4px; }
+.kpi .delta { font-size: 12px; font-weight: 600; color: #059669; }
+.kpi .delta.down { color: #dc2626; }
+.kpi svg { position: absolute; right: 14px; bottom: 14px; width: 96px; height: 34px; }
+.row2 { display: grid; grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); gap: 20px; align-items: start; }
+.panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
+.panel > header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #e2e8f0; }
+.panel > header h2 { font-size: 15px; margin: 0; }
+.panel > header a { font-size: 13px; font-weight: 600; text-underline-offset: 2px; }
+.tablewrap { max-height: 330px; overflow: auto; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+th { position: sticky; top: 0; background: #f8fafc; text-align: left; font-size: 12px; color: #475569; font-weight: 600; padding: 9px 18px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+td { padding: 11px 18px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+tbody tr:nth-child(even) td { background: #fcfdfe; }
+td.svc { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+td.num { text-align: right; }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ok { background: #ecfdf5; color: #047857; } .warn { background: #fffbeb; color: #b45309; } .bad { background: #fef2f2; color: #b91c1c; }
+.bar { height: 6px; border-radius: 999px; background: #e2e8f0; overflow: hidden; width: 120px; }
+.bar i { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #22d3ee); border-radius: inherit; }
+.side { display: grid; gap: 20px; }
+.settings { padding: 6px 18px 12px; }
+.setting { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px dashed #e2e8f0; }
+.setting:last-child { border-bottom: 0; }
+.setting b { display: block; font-size: 14px; }
+.setting small { color: #64748b; font-size: 12px; }
+.switch { appearance: none; -webkit-appearance: none; margin: 0 0 0 auto; width: 38px; height: 22px; border-radius: 999px; background: #cbd5e1; position: relative; flex: none; }
+.switch::before { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.switch:checked { background: #4f46e5; }
+.switch:checked::before { left: 19px; }
+.limits { padding: 14px 18px 18px; display: grid; gap: 12px; }
+.limits label { display: flex; justify-content: space-between; font-size: 13px; color: #334155; }
+.limits progress { width: 100%; height: 8px; accent-color: #4f46e5; }
+.limits input[type=range] { width: 100%; accent-color: #0ea5e9; margin: 0; }
+.hook { margin: 0 18px 16px; padding: 10px 12px; background: #0f172a; color: #e2e8f0; border-radius: 8px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 16px 18px 20px; }
+.col h3 { margin: 0 0 10px; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: .06em; display: flex; gap: 8px; align-items: center; }
+.col h3 em { font-style: normal; background: #e2e8f0; color: #334155; border-radius: 999px; padding: 0 7px; font-size: 11px; }
+.ticket { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(15,23,42,.06); }
+.ticket p { margin: 0 0 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ticket .meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #64748b; }
+.ticket.hot { transform: rotate(-1.2deg); border-color: #fecaca; }
+.tag { font-size: 11px; font-weight: 700; color: #7c3aed; background: #f5f3ff; border: 1px solid #ddd6fe; padding: 0 6px; border-radius: 4px; }
+@media (max-width: 1000px) {
+  .rail { display: none; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row2 { grid-template-columns: minmax(0, 1fr); }
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .top { padding: 0 16px; } .crumbs { display: none; } .content { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Workspace">
+    <div class="logo"><i></i>Orbit</div>
+    <a class="on" href="/">Overview <span class="n">12</span></a>
+    <a href="/deploys">Deployments <span class="n">148</span></a>
+    <a href="/incidents">Incidents <span class="n">3</span></a>
+    <a href="/billing">Billing</a>
+    <div class="sep"></div>
+    <div class="group">Teams</div>
+    <a href="/t/core">Core platform</a>
+    <a href="/t/growth">Growth</a>
+    <a href="/t/data">Data &amp; ML</a>
+  </nav>
+  <div class="main">
+    <header class="top">
+      <h1>Overview</h1>
+      <div class="crumbs"><a href="/org">Acme Inc.</a> / <a href="/ws">Production</a></div>
+      <select aria-label="Range"><option>Last 30 days</option><option>Last 7 days</option></select>
+      <div class="avatars"><img src="/img/avatar1.jpg" alt="Ann"><img src="/img/avatar2.jpg" alt="Ben"><img src="/img/avatar3.jpg" alt="Cleo"><span>+4</span></div>
+    </header>
+    <div class="content">
+      <section class="kpis">
+        <div class="kpi"><div class="lbl">Revenue</div><div class="val">$84,210</div><div class="delta">▲ 12.4% vs last period</div><svg viewBox="0 0 96 34" fill="none"><path d="M0 28 L12 24 L24 26 L36 18 L48 20 L60 12 L72 14 L84 6 L96 8" stroke="#6366f1" stroke-width="2"/></svg></div>
+        <div class="kpi"><div class="lbl">Deployments</div><div class="val">1,148</div><div class="delta">▲ 4.1%</div><svg viewBox="0 0 96 34" fill="none"><path d="M0 20 L12 22 L24 14 L36 16 L48 10 L60 18 L72 8 L84 12 L96 4" stroke="#22d3ee" stroke-width="2"/></svg></div>
+        <div class="kpi"><div class="lbl">Error rate</div><div class="val">0.42%</div><div class="delta down">▼ 0.08 pp</div><svg viewBox="0 0 96 34" fill="none"><path d="M0 6 L12 10 L24 8 L36 16 L48 14 L60 22 L72 20 L84 26 L96 24" stroke="#f43f5e" stroke-width="2"/></svg></div>
+        <div class="kpi"><div class="lbl">p95 latency</div><div class="val">182 ms</div><div class="delta">▲ 9 ms</div><svg viewBox="0 0 96 34" fill="none"><path d="M0 18 L12 16 L24 20 L36 12 L48 14 L60 10 L72 16 L84 12 L96 14" stroke="#a855f7" stroke-width="2"/></svg></div>
+      </section>
+      <div class="row2">
+        <section class="panel">
+          <header><h2>Services</h2><a href="/services">View all</a></header>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th>Service</th><th>Status</th><th>CPU</th><th class="num">Requests/s</th><th class="num">Errors</th></tr></thead>
+              <tbody>
+                <tr><td class="svc">api-gateway-production-eu-west-1</td><td><span class="badge ok">Healthy</span></td><td><div class="bar"><i style="width:62%"></i></div></td><td class="num">12,480</td><td class="num">3</td></tr>
+                <tr><td class="svc">billing-worker</td><td><span class="badge warn">Degraded</span></td><td><div class="bar"><i style="width:88%"></i></div></td><td class="num">1,204</td><td class="num">41</td></tr>
+                <tr><td class="svc">search-indexer-with-a-very-long-name</td><td><span class="badge ok">Healthy</span></td><td><div class="bar"><i style="width:35%"></i></div></td><td class="num">860</td><td class="num">0</td></tr>
+                <tr><td class="svc">notifications</td><td><span class="badge bad">Down</span></td><td><div class="bar"><i style="width:4%"></i></div></td><td class="num">0</td><td class="num">1,920</td></tr>
+                <tr><td class="svc">auth</td><td><span class="badge ok">Healthy</span></td><td><div class="bar"><i style="width:47%"></i></div></td><td class="num">5,310</td><td class="num">1</td></tr>
+                <tr><td class="svc">media-transcoder</td><td><span class="badge ok">Healthy</span></td><td><div class="bar"><i style="width:71%"></i></div></td><td class="num">96</td><td class="num">0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <div class="side">
+          <section class="panel">
+            <header><h2>Settings</h2></header>
+            <div class="settings">
+              <div class="setting"><div><b>Auto-deploy main</b><small>Ship every merge to production</small></div><input class="switch" type="checkbox" checked aria-label="Auto-deploy"></div>
+              <div class="setting"><div><b>Preview environments</b><small>One per pull request</small></div><input class="switch" type="checkbox" aria-label="Previews"></div>
+              <div class="setting"><div><b>Incident paging</b><small>Call the on-call engineer</small></div><input class="switch" type="checkbox" checked aria-label="Paging"></div>
+            </div>
+          </section>
+          <section class="panel">
+            <header><h2>Usage</h2></header>
+            <div class="limits">
+              <label>Build minutes <span>6,200 / 10,000</span></label><progress value="62" max="100"></progress>
+              <label>Bandwidth alert <span>80%</span></label><input type="range" value="80" aria-label="Alert">
+            </div>
+            <div class="hook">https://hooks.orbit.dev/v1/ws_8f2c1a9e7b4d4c0f9a1e2b3c4d5e6f70/deploy?token=sk_live_REDACTED_0000000000</div>
+          </section>
+        </div>
+      </div>
+      <section class="panel">
+        <header><h2>Sprint board</h2><a href="/board">Open board</a></header>
+        <div class="board">
+          <div class="col"><h3>To do <em>3</em></h3>
+            <div class="ticket"><p>Migrate the billing worker to the new queue so retries stop doubling invoices for annual plans</p><div class="meta"><span class="tag">BILL-212</span><span>Ann</span></div></div>
+            <div class="ticket hot"><p>Notifications service is down in eu-west-1</p><div class="meta"><span class="tag">INC-88</span><span>Ben</span></div></div>
+          </div>
+          <div class="col"><h3>In progress <em>2</em></h3>
+            <div class="ticket"><p>Preview environments: reuse warm containers</p><div class="meta"><span class="tag">PLAT-91</span><span>Cleo</span></div></div>
+            <div class="ticket"><p>Search indexer memory leak after the last dependency upgrade, investigate heap snapshots</p><div class="meta"><span class="tag">SRCH-40</span><span>Dan</span></div></div>
+          </div>
+          <div class="col"><h3>Done <em>5</em></h3>
+            <div class="ticket"><p>Rotate API gateway certificates</p><div class="meta"><span class="tag">SEC-17</span><span>Ann</span></div></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</body>
+</html>

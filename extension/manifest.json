@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "site-blueprint — клон страницы для ИИ-кодера",
   "short_name": "site-blueprint",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Захват живой страницы или сайта (DOM со стилями, ассеты, API-ответы, интерактивный стейт) для site-blueprint CLI.",
   "minimum_chrome_version": "116",
   "action": {

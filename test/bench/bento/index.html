@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kite — Analytics for small teams</title>
+<style>
+@font-face { font-family: "Kite Sans"; src: url(/fonts/brand-sans-regular.ttf) format("truetype"); font-weight: 400; }
+@font-face { font-family: "Kite Sans"; src: url(/fonts/brand-sans-bold.ttf) format("truetype"); font-weight: 700; }
+@font-face { font-family: "Kite Display"; src: url(/fonts/brand-display-bold.ttf) format("truetype"); font-weight: 700; }
+:root { --gap: clamp(12px, 1.6vw, 24px); --r: 20px; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --card: #f8fafc; --accent: #f97316; --violet: #7c3aed; }
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; font-family: "Kite Sans", system-ui, sans-serif; color: var(--ink); background: #fff; line-height: 1.5; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+.wrap { width: min(1200px, 100% - 48px); margin-inline: auto; }
+.top { display: flex; align-items: center; justify-content: space-between; padding-block: 20px; }
+.logo { display: inline-flex; align-items: center; gap: 10px; font: 700 20px/1 "Kite Display", Georgia, serif; }
+.logo i { width: 28px; height: 28px; border-radius: 8px; background: conic-gradient(from 210deg, var(--accent), var(--violet), var(--accent)); }
+.top nav { display: flex; gap: 28px; font-size: 15px; color: var(--muted); }
+.top nav a:hover { color: var(--ink); }
+.top .cta { padding: 10px 18px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 14px; font-weight: 700; }
+.hero { padding-block: clamp(40px, 7vw, 96px) clamp(32px, 5vw, 64px); text-align: center; }
+.eyebrow { display: inline-block; padding: 6px 12px; border-radius: 999px; background: #fff7ed; color: #c2410c; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.hero h1 { margin: 18px auto 16px; max-width: 14ch; font: 700 clamp(40px, 6vw, 76px)/1.02 "Kite Display", Georgia, serif; letter-spacing: -.025em; }
+.hero p { margin: 0 auto; max-width: 56ch; font-size: clamp(16px, 1.4vw, 19px); color: var(--muted); }
+.bento { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(190px, auto); gap: var(--gap);
+  grid-template-areas: "main main users rev" "main main chart chart" "team quote quote square"; }
+.tile { position: relative; overflow: hidden; border-radius: var(--r); background: var(--card); border: 1px solid var(--line); padding: 24px; display: flex; flex-direction: column; }
+.tile h3 { margin: 0 0 6px; font-size: 17px; }
+.tile p { margin: 0; color: var(--muted); font-size: 14px; }
+.t-main { grid-area: main; padding: 0; background: #0b1020; color: #fff; border: 0; }
+.t-main img { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; opacity: .55; }
+.t-main .over { position: relative; margin-top: auto; padding: 32px; background: linear-gradient(180deg, rgba(11,16,32,0) 0%, rgba(11,16,32,.92) 70%); }
+.t-main h2 { margin: 0 0 8px; font: 700 34px/1.1 "Kite Display", Georgia, serif; }
+.t-main p { color: #cbd5e1; font-size: 15px; max-width: 44ch; }
+.t-users { grid-area: users; }
+.big { font: 700 44px/1 "Kite Display", Georgia, serif; letter-spacing: -.02em; margin-top: auto; }
+.delta { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 13px; font-weight: 700; color: #15803d; }
+.t-rev { grid-area: rev; background: linear-gradient(160deg, #fff7ed, #ffedd5); border-color: #fed7aa; }
+.t-chart { grid-area: chart; }
+.t-chart svg { width: 100%; height: auto; margin-top: auto; }
+.legend { display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; background: var(--violet); }
+.legend span + span::before { background: var(--accent); }
+.t-team { grid-area: team; }
+.faces { display: flex; margin-top: auto; }
+.faces img { width: 44px; height: 44px; border-radius: 50%; border: 3px solid var(--card); object-fit: cover; }
+.faces img + img { margin-left: -12px; }
+.faces b { display: grid; place-items: center; width: 44px; height: 44px; margin-left: -12px; border-radius: 50%; border: 3px solid var(--card); background: var(--violet); color: #fff; font-size: 13px; }
+.t-quote { grid-area: quote; background: var(--violet); color: #fff; border: 0; justify-content: center; }
+.t-quote blockquote { margin: 0; font: 700 22px/1.35 "Kite Display", Georgia, serif; }
+.t-quote cite { display: block; margin-top: 14px; font-style: normal; font-size: 14px; color: #ddd6fe; }
+.t-square { grid-area: square; aspect-ratio: 1 / 1; align-items: center; justify-content: center; text-align: center; background: radial-gradient(circle at 30% 20%, #fde68a, #f59e0b 60%, #b45309); color: #451a03; border: 0; }
+.t-square .big { margin: 0; }
+.section-title { margin: clamp(48px, 7vw, 96px) 0 20px; font: 700 clamp(26px, 3vw, 36px)/1.15 "Kite Display", Georgia, serif; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--gap); }
+.card { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #fff; }
+.card .ph { aspect-ratio: 4 / 3; background: #e2e8f0; }
+.card .ph img { width: 100%; height: 100%; object-fit: cover; }
+.card .bd { padding: 14px 16px 16px; }
+.card h4 { margin: 0 0 4px; font-size: 15px; }
+.card small { color: var(--muted); font-size: 13px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tags span { padding: 2px 8px; border-radius: 6px; background: #f1f5f9; font-size: 12px; color: #334155; }
+.stats { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin-top: clamp(48px, 7vw, 96px); border-block: 1px solid var(--line); }
+.stats div { padding: 28px 24px; }
+.stats div + div { border-left: 1px solid var(--line); }
+.stats b { display: block; font: 700 36px/1 "Kite Display", Georgia, serif; }
+.stats span { font-size: 14px; color: var(--muted); }
+.foot { display: flex; justify-content: space-between; gap: 24px; padding-block: 40px; font-size: 13px; color: var(--muted); }
+@media (max-width: 760px) {
+  .top nav { display: none; }
+  .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(160px, auto);
+    grid-template-areas: "main main" "main main" "users rev" "chart chart" "team square" "quote quote"; }
+  .t-main h2 { font-size: 26px; }
+  .stats { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
+  .stats div:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); }
+  .stats div:nth-child(4) { border-top: 1px solid var(--line); }
+  .foot { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <a class="logo" href="/"><i></i>Kite</a>
+  <nav><a href="/product">Product</a><a href="/pricing">Pricing</a><a href="/customers">Customers</a><a href="/docs">Docs</a></nav>
+  <a class="cta" href="/signup">Start free</a>
+</header>
+<main class="wrap">
+  <section class="hero">
+    <span class="eyebrow">New · Funnels 2.0</span>
+    <h1>Analytics your whole team will actually read</h1>
+    <p>Kite turns product events into plain-language answers. No SQL, no dashboards nobody opens — just the numbers that move your business.</p>
+  </section>
+  <section class="bento" aria-label="Highlights">
+    <article class="tile t-main"><img src="/img/wide.jpg" alt=""><div class="over"><h2>One timeline for every customer</h2><p>Sessions, payments and support tickets stitched together automatically, so you see the whole story in one place.</p></div></article>
+    <article class="tile t-users"><h3>Weekly active</h3><p>Across web and mobile</p><div class="big">48,210</div><span class="delta">▲ 12.4%</span></article>
+    <article class="tile t-rev"><h3>Revenue</h3><p>Last 30 days</p><div class="big">$92.4k</div><span class="delta">▲ 8.1%</span></article>
+    <article class="tile t-chart"><h3>Retention by cohort</h3><p>Users who came back in week 4</p>
+      <svg viewBox="0 0 600 140" role="img" aria-label="Retention chart"><polyline fill="none" stroke="#7c3aed" stroke-width="3" points="0,110 60,96 120,100 180,78 240,82 300,60 360,64 420,44 480,50 540,30 600,26"/><polyline fill="none" stroke="#f97316" stroke-width="3" stroke-dasharray="6 6" points="0,120 60,114 120,112 180,104 240,100 300,96 360,90 420,86 480,80 540,76 600,70"/></svg>
+      <div class="legend"><span>2025 cohorts</span><span>2024 cohorts</span></div></article>
+    <article class="tile t-team"><h3>Built for teams</h3><p>Share answers in Slack</p><div class="faces"><img src="/img/avatar1.jpg" alt=""><img src="/img/avatar2.jpg" alt=""><img src="/img/avatar3.jpg" alt=""><b>+9</b></div></article>
+    <article class="tile t-quote"><blockquote>“We replaced three tools with Kite and our Monday metrics meeting went from an hour to ten minutes.”</blockquote><cite>Priya Raman — Head of Growth, Loop</cite></article>
+    <article class="tile t-square"><div class="big">99.9%</div><p style="color:#78350f">uptime SLA</p></article>
+  </section>
+  <h2 class="section-title">Templates to start from</h2>
+  <section class="gallery">
+    <a class="card" href="/t/saas"><div class="ph"><img src="/img/p1.jpg" alt=""></div><div class="bd"><h4>SaaS metrics</h4><small>MRR, churn, expansion</small><div class="tags"><span>Revenue</span><span>Stripe</span></div></div></a>
+    <a class="card" href="/t/shop"><div class="ph"><img src="/img/p2.jpg" alt=""></div><div class="bd"><h4>E-commerce funnel</h4><small>Views → cart → checkout</small><div class="tags"><span>Funnels</span><span>Shopify</span></div></div></a>
+    <a class="card" href="/t/app"><div class="ph"><img src="/img/p3.jpg" alt=""></div><div class="bd"><h4>Mobile app health</h4><small>Crashes, sessions, versions</small><div class="tags"><span>iOS</span><span>Android</span></div></div></a>
+    <a class="card" href="/t/content"><div class="ph"><img src="/img/p4.jpg" alt=""></div><div class="bd"><h4>Content performance</h4><small>Reads, scroll depth, shares</small><div class="tags"><span>Blog</span><span>SEO</span></div></div></a>
+    <a class="card" href="/t/support"><div class="ph"><img src="/img/p5.jpg" alt=""></div><div class="bd"><h4>Support load</h4><small>Tickets by feature</small><div class="tags"><span>Zendesk</span></div></div></a>
+    <a class="card" href="/t/pql"><div class="ph"><img src="/img/p6.jpg" alt=""></div><div class="bd"><h4>Product-qualified leads</h4><small>Accounts ready for sales</small><div class="tags"><span>CRM</span><span>HubSpot</span><span>B2B</span></div></div></a>
+  </section>
+  <section class="stats"><div><b>2,400+</b><span>teams on Kite</span></div><div><b>1.8B</b><span>events a month</span></div><div><b>4 min</b><span>median setup time</span></div><div><b>SOC 2</b><span>Type II certified</span></div></section>
+</main>
+<footer class="wrap foot"><span>© 2025 Kite Analytics, Inc.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/status">Status</a></span></footer>
+</body>
+</html>

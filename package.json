@@ -1,21 +1,28 @@
 {
   "name": "site-blueprint",
-  "version": "2.0.0",
-  "description": "URL or browser-extension capture -> design-system analysis -> Next.js 16 + Tailwind v4 project with mock API -> LLM -> SITE_CLONE_BLUEPRINT.md -> self-healing build + visual regression",
+  "version": "2.1.0",
+  "description": "URL or browser-extension capture -> design-system analysis -> Next.js 16 + Tailwind v4 project with mock API -> LLM -> SITE_CLONE_BLUEPRINT.md -> self-healing build + visual regression + MCP server",
   "type": "module",
   "bin": {
-    "site-blueprint": "bin/site-blueprint.mjs"
+    "site-blueprint": "bin/site-blueprint.mjs",
+    "sb": "bin/site-blueprint.mjs"
   },
   "scripts": {
     "setup": "npx playwright install chromium",
     "start": "node bin/site-blueprint.mjs",
+    "cli": "node bin/site-blueprint.mjs",
+    "sb": "node bin/site-blueprint.mjs",
     "listen": "node bin/site-blueprint.mjs listen",
     "verify": "node bin/site-blueprint.mjs verify",
     "heal": "node bin/site-blueprint.mjs heal",
+    "pick": "node bin/site-blueprint.mjs pick",
+    "mcp": "node bin/site-blueprint.mjs mcp",
     "build:extension": "node scripts/build-extension.mjs",
+    "build:launcher": "node scripts/build-launchers.mjs",
     "test": "node test/run-local-test.mjs",
     "test:unit": "node test/unit/run.mjs",
-    "test:extension": "node test/extension-e2e.mjs"
+    "test:extension": "node test/extension-e2e.mjs",
+    "bench": "node test/benchmark.mjs"
   },
   "engines": {
     "node": ">=20.12"

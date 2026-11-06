@@ -68,7 +68,7 @@ namespace SiteBlueprintLauncher
 
         private void InitializeComponent()
         {
-            this.Text = "site-blueprint v2.0.0 — AI Website Cloner";
+            this.Text = "site-blueprint v2.1.0 — AI Website Cloner";
             this.Size = new Size(880, 680);
             this.MinimumSize = new Size(760, 560);
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -87,7 +87,7 @@ namespace SiteBlueprintLauncher
 
             Label lblTitle = new Label
             {
-                Text = "⚡ site-blueprint v2.0.0",
+                Text = "⚡ site-blueprint v2.1.0",
                 Font = new Font("Segoe UI", 15f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(167, 139, 250), // Violet 400
                 AutoSize = true,
@@ -259,10 +259,54 @@ namespace SiteBlueprintLauncher
                     "2. Включите 'Режим разработчика' (вверху справа)\n" +
                     "3. Нажмите 'Загрузить распакованное расширение'\n" +
                     "4. Выберите открывшуюся папку 'extension'!\n\n" +
-                    "После этого нажмите значок site-blueprint на любой странице сайта.",
+                    "В попапе доступны: 'Клонировать страницу', 'Клонировать сайт' и '🎯 Выбрать компонент (JSX в буфер)'.",
                     "Установка расширения",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
+            };
+
+            Button btnMcp = new Button
+            {
+                Text = "🔌 MCP Конфиг",
+                Location = new Point(580, 110),
+                Size = new Size(145, 30),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(124, 58, 237), // Violet 600
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            btnMcp.FlatAppearance.BorderSize = 0;
+            btnMcp.Click += (s, e) => {
+                string binPath = Path.Combine(toolRoot, "bin", "site-blueprint.mjs").Replace("\\", "/");
+                string mcpJson = "{\n  \"mcpServers\": {\n    \"site-blueprint\": {\n      \"command\": \"node\",\n      \"args\": [\"" + binPath + "\", \"mcp\"]\n    }\n  }\n}";
+                try { Clipboard.SetText(mcpJson); } catch { }
+                AppendLog("\n✔ MCP-конфиг для Cursor / Claude Code скопирован в буфер обмена!", Color.LightGreen);
+                AppendLog(mcpJson, Color.Cyan);
+            };
+
+            Button btnHeal = new Button
+            {
+                Text = "🩹 Heal проекта",
+                Location = new Point(735, 110),
+                Size = new Size(145, 30),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(217, 119, 6), // Amber 600
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            btnHeal.FlatAppearance.BorderSize = 0;
+            btnHeal.Click += (s, e) => {
+                using (FolderBrowserDialog fbd = new FolderBrowserDialog())
+                {
+                    string outDir = Path.Combine(toolRoot, "output");
+                    if (Directory.Exists(outDir)) fbd.SelectedPath = outDir;
+                    fbd.Description = "Выберите папку клона в output/ для сборки и самоисправления (heal):";
+                    if (fbd.ShowDialog() == DialogResult.OK && !string.IsNullOrEmpty(fbd.SelectedPath))
+                    {
+                        string script = Path.Combine(toolRoot, "bin", "site-blueprint.mjs");
+                        StartRunner(string.Format("\"{0}\" heal \"{1}\"", script, fbd.SelectedPath), "Самоисправление сборки " + Path.GetFileName(fbd.SelectedPath));
+                    }
+                }
             };
 
             pnlControls.Controls.Add(lblUrl);
@@ -281,6 +325,8 @@ namespace SiteBlueprintLauncher
             pnlControls.Controls.Add(btnListen);
             pnlControls.Controls.Add(btnOpenOutput);
             pnlControls.Controls.Add(btnExtension);
+            pnlControls.Controls.Add(btnMcp);
+            pnlControls.Controls.Add(btnHeal);
 
             // --- STATUS BAR PANEL ---
             Panel pnlStatus = new Panel
@@ -335,7 +381,7 @@ namespace SiteBlueprintLauncher
             this.Controls.Add(pnlControls);
             this.Controls.Add(pnlHeader);
 
-            AppendLog("⚡ site-blueprint v2.0.0 инициализирован. Рабочая папка: " + toolRoot, Color.Cyan);
+            AppendLog("⚡ site-blueprint v2.1.0 инициализирован. Рабочая папка: " + toolRoot, Color.Cyan);
             AppendLog("💡 Введите ссылку на сайт и нажмите 'Клонировать', либо запустите сервер расширения.", Color.Gray);
         }
 

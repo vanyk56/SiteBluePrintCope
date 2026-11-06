@@ -484,6 +484,13 @@ async function sendToCli(j, blob, filename, o) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.type !== 'string' || sender.id !== chrome.runtime.id) return false;
   if (msg.type === 'sb:start') { startJob(msg).then((j) => sendResponse({ ok: true, job: j }), (e) => sendResponse({ ok: false, error: errMsg(e) })); return true; }
+  if (msg.type === 'sb:pick') {
+    (async () => {
+      await inject(msg.tabId);
+      await call(msg.tabId, 'startPicker');
+    })().then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: errMsg(e) }));
+    return true;
+  }
   if (msg.type === 'sb:status') { if (job) sendResponse({ ok: true, job: pub(job) }); else chrome.storage.session.get('job').then((s) => sendResponse({ ok: true, job: s.job && s.job.status === 'running' ? { ...s.job, status: 'error', error: 'работа расширения была прервана браузером — запусти захват ещё раз' } : s.job || null })); return true; }
   if (msg.type === 'sb:cancel') { if (job && job.status === 'running') job.cancelled = true; sendResponse({ ok: true }); return false; }
   if (msg.type === 'sb:downloaded') { const r = downloads.get(msg.id); if (r) r(msg); sendResponse({ ok: true }); return false; }

@@ -55,8 +55,25 @@ export async function selfCheck({ outDir, projectRoot, site, opts, llmCfg = null
       srv = await startNext(projectRoot, { host: '127.0.0.1' });
       const { visualRegression } = await import('./visual.mjs');
       report.visual = await visualRegression({ site, outDir, baseUrl: srv.url, opts });
+      const minSim = opts.minSimilarity ?? 0.85;
+      if (opts.visualHeal !== false && report.visual && (report.visual.min ?? 1) < minSim) {
+        const { healVisualDrift } = await import('./visual-heal.mjs');
+        const llm = llmCfg && llmCfg.enabled ? llmCfg : null;
+        const vh = await healVisualDrift({ projectRoot, outDir, site, visualReport: report.visual, llm, minSimilarity: minSim });
+        report.visualHeal = vh;
+        if (vh.fixed > 0) {
+          log.info(`Визуальное самоисправление: обновлено компонентов ${vh.fixed}/${vh.attempted}, пересборка…`);
+          await srv.stop(); srv = null;
+          const rebuild = await healProject(projectRoot, { iterations: 2, llm, outDir });
+          if (rebuild.ok) {
+            srv = await startNext(projectRoot, { host: '127.0.0.1' });
+            report.visual = await visualRegression({ site, outDir, baseUrl: srv.url, opts });
+          }
+        }
+      }
       report.links = await checkLinks(srv.url, site);
-      log.ok(`Визуальное сходство: среднее ${pct(report.visual.average)}, минимум ${pct(report.visual.min)}; ссылки: ${linkSummary(report.links)}`);
+      const v = report.visual;
+      log.ok(`Визуальное сходство (по секциям): среднее ${pct(v.average)}, минимум ${pct(v.min)} · строгое ${pct(v.strict && v.strict.average)} / ${pct(v.strict && v.strict.min)} · раскладка ${pct(v.layout && v.layout.average)}; ссылки: ${linkSummary(report.links)}`);
     } catch (e) { report.visualError = String((e && e.message) || e).split('\n')[0]; log.warn('Визуальная проверка: ' + report.visualError); }
     finally { if (srv) await srv.stop(); }
   }
@@ -87,15 +104,28 @@ export function renderReport(r, site, opts = {}) {
   }
   L.push('## 2. Визуальная регрессия (оригинал vs клон)', '');
   if (r.visual) {
-    L.push(`Порог pixelmatch: ${opts.threshold ?? 0.1}; целевое сходство: ≥ ${pct(min)}. Среднее: **${pct(r.visual.average)}**, минимум: **${pct(r.visual.min)}**.`, '');
-    L.push('| Страница | Вид | HTTP | Сходство | Высота ориг./клон | Сравнение |', '|---|---|---|---|---|---|');
-    for (const p of r.visual.pages) L.push(`| ${p.route} | ${p.view} | ${p.status ?? '—'} | ${p.error ? '⚠ ' + p.error.slice(0, 80) : `${p.similarity >= min ? '✅' : '❌'} ${pct(p.similarity)}`} | ${p.heightOriginal || '—'} / ${p.heightClone || '—'} | ${p.composite ? `[compare](${p.composite}) · [diff](${p.diff})` : '—'} |`);
+    const v = r.visual;
+    L.push(`Порог pixelmatch: ${opts.threshold ?? 0.1}; целевое сходство: ≥ ${pct(min)}.`, '');
+    L.push(`- **Сходство по секциям** (основная метрика): среднее **${pct(v.average)}**, минимум **${pct(v.min)}** — каждая секция оригинала сравнивается с клоном на своём вертикальном смещении (полосы до 600 px, эластичный поиск сдвига), разница высоты страницы засчитывается как отличие, области canvas/video/iframe исключены (меняются сами по себе).`);
+    if (v.strict) L.push(`- **Строгое** (без выравнивания и масок, пиксель в пиксель по всей высоте): среднее ${pct(v.strict.average)}, минимум ${pct(v.strict.min)} — один лишний перенос строки сверху делает красным всё ниже.`);
+    if (v.layout) L.push(`- **Раскладка** (IoU текстовых блоков с тем же текстом, взвешено по площади): среднее ${pct(v.layout.average)}, минимум ${pct(v.layout.min)}.`);
     L.push('');
-    const worst = r.visual.pages.flatMap((p) => (p.bands || []).map((b) => ({ ...b, route: p.route }))).sort((a, b) => a.similarity - b.similarity).slice(0, 12);
+    L.push('| Страница | Вид | HTTP | По секциям | Строгое | Раскладка | Высота ориг./клон | Сравнение |', '|---|---|---|---|---|---|---|---|');
+    for (const p of v.pages) L.push(`| ${p.route} | ${p.view} | ${p.status ?? '—'} | ${p.error ? '⚠ ' + p.error.slice(0, 80) : `${p.similarity >= min ? '✅' : '❌'} ${pct(p.similarity)}`} | ${p.error ? '—' : pct(p.strict)} | ${p.error ? '—' : `${pct(p.layout)}${typeof p.layoutMatched === 'number' && p.layoutMatched < 0.95 ? ` (найдено ${Math.round(p.layoutMatched * 100)}% текстов)` : ''}`} | ${p.heightOriginal || '—'} / ${p.heightClone || '—'} | ${p.composite ? `[compare](${p.composite}) · [diff](${p.diff})` : '—'} |`);
+    L.push('');
+    const worst = v.pages.flatMap((p) => (p.bands || []).map((b) => ({ ...b, route: p.route, view: p.view }))).sort((a, b) => a.similarity - b.similarity).slice(0, 12);
     if (worst.length) {
-      L.push('### Секции с наибольшими расхождениями (desktop)', '', '| Страница | Секция | Y | Высота | Сходство |', '|---|---|---|---|---|');
-      for (const b of worst) L.push(`| ${b.route} | ${b.name.replace(/\|/g, '/')} | ${Math.round(b.y)} | ${Math.round(b.h)} | ${pct(b.similarity)} |`);
-      L.push('', 'Красное на diff-картинках — отличающиеся пиксели. Частые причины: другой шрифт/межстрочный интервал (сдвиг всего ниже), не скачанная картинка, анимация/canvas, динамический контент (даты, счётчики).', '');
+      L.push('### Секции с наибольшими расхождениями', '', '| Страница | Вид | Секция | Y | Высота | Сходство | Строгое | Сдвиг клона |', '|---|---|---|---|---|---|---|---|');
+      for (const b of worst) L.push(`| ${b.route} | ${b.view} | ${b.name.replace(/\|/g, '/')} | ${Math.round(b.y)} | ${Math.round(b.h)} | ${pct(b.similarity)} | ${pct(b.strict)} | ${b.offset ? (b.offset > 0 ? '+' : '') + b.offset + ' px' : '0'} |`);
+      L.push('', 'Красное на diff-картинках — отличающиеся пиксели после выравнивания секций, голубое — исключённые области (canvas/video/iframe). «Сдвиг клона» — насколько секция клона выше/ниже, чем в оригинале: растущий сдвиг означает, что секция выше по странице длиннее оригинала (перенос строки, отступы, шрифт). Частые причины красного: другой шрифт/межстрочный интервал, не скачанная картинка, динамический контент (даты, счётчики).', '');
+    }
+    if (r.visualHeal && r.visualHeal.attempted > 0) {
+      L.push('### Автоматическое исправление вёрстки (Visual Auto-Heal)', '', `Проверено проблемных секций: ${r.visualHeal.attempted}, пропатчено: ${r.visualHeal.fixed}.`, '');
+      L.push('| Компонент | Файл | Маршрут | Исходное сходство | Метод |', '|---|---|---|---|---|');
+      for (const d of r.visualHeal.details || []) {
+        L.push(`| \`${d.name}\` | \`${d.file}\` | ${d.route} (${d.view}) | ${pct(d.beforeSimilarity)} | ${d.method || '—'} |`);
+      }
+      L.push('');
     }
   } else if (r.visualError) L.push(`⚠ Не выполнена: ${r.visualError}`, '');
   else L.push('Не выполнялась (сборка не прошла или `--no-visual`).', '');
