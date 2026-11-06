@@ -116,7 +116,7 @@ export function buildSite(data, opts = {}) {
   const sigOf = (s) => s.type + '|' + s.node.t + '|' + sha(norm(textOf(s.node, 6000)), 10);
   const cnt = new Map();
   for (const p of P) for (const s of p.sections) { s._sig = sigOf(s); if (GLOBAL_TYPES.has(s.type)) cnt.set(s._sig, (cnt.get(s._sig) || 0) + 1); }
-  const need = Math.max(1, Math.ceil(P.length * 0.5));
+  const need = P.length > 1 ? Math.max(2, Math.ceil(P.length * 0.5)) : 1;
   const globalSigs = new Set([...cnt].filter(([, c]) => c >= need).map(([k]) => k));
 
   const used = new Set(['Page', 'RootLayout', 'Link', 'Image', ...icons.map((i) => i.name)]);
@@ -192,7 +192,7 @@ export function buildSite(data, opts = {}) {
       const enh = enhanceSection(sk.sectionFile(r), r, { tabGroups: (p.rec.probes && p.rec.probes.tabGroups) || [], lang: opts.lang || 'ru', catalogTools: opts.catalogTools === true, cart: !!cart });
       r.features = enh.features; r.isClient = enh.client; r.client = [...new Set([...(r.client || []), ...enh.uses])].sort();
       const comp = {
-        name, type: s.type, global: isGlobal, position: isGlobal ? (firstContent < 0 || s.index < firstContent ? 'top' : 'bottom') : null,
+        name, type: s.type, global: isGlobal, position: isGlobal ? (s.type === 'footer' ? 'bottom' : (firstContent < 0 || s.index < firstContent ? 'top' : 'bottom')) : null,
         page: p.slug, route: p.route, index: s.index, heading: s.heading,
         file: `${isGlobal ? 'components/layout' : 'components/sections'}/${name}.tsx`,
         code: enh.code, render: r, usedOn: new Set([p.slug]), client: enh.client,

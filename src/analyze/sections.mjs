@@ -50,12 +50,17 @@ export function detectSections(root, vh, info = null) {
       const ks = kids(n).filter((k) => !k.sr && k.r[3] >= 8);
       const big = ks.filter((k) => k.r[3] >= 120);
       const semantic = ['header', 'footer', 'nav'].includes(n.t);
-      const expand = !semantic && ks.length >= 2 && (
-        n.t === 'main' ||
-        (n.t === 'section' && ks.filter((k) => k.t === 'section').length >= 2) ||
-        (['div', 'article'].includes(n.t) && n.r[3] > vh * 1.5 && big.length >= 2 && (!hasBox(n) || big.length >= 3)) ||
-        (['div', 'article'].includes(n.t) && ks.some((k) => ['header', 'footer', 'section', 'main'].includes(k.t)) && big.length >= 2) ||
-        (['div', 'article', 'section', 'main', 'aside'].includes(n.t) && ks.length <= 12 && weightOf(n, memo) > HEAVY && !repeatKids(ks))
+      const singleUnwrap = !semantic && ks.length === 1 && ['main', 'article', 'div'].includes(n.t) && ['main', 'article', 'div', 'section'].includes(ks[0].t) && ks[0].r[3] >= 8;
+      const expand = !semantic && (
+        singleUnwrap ||
+        (ks.length >= 2 && (
+          n.t === 'main' ||
+          (n.t === 'section' && ks.filter((k) => k.t === 'section').length >= 2) ||
+          (['div', 'article'].includes(n.t) && ks.some((k) => k.t === 'section')) ||
+          (['div', 'article'].includes(n.t) && n.r[3] > vh * 1.5 && big.length >= 2 && (!hasBox(n) || big.length >= 3)) ||
+          (['div', 'article'].includes(n.t) && ks.some((k) => ['header', 'footer', 'section', 'main'].includes(k.t)) && big.length >= 2) ||
+          (['div', 'article', 'section', 'main', 'aside'].includes(n.t) && ks.length <= 12 && weightOf(n, memo) > HEAVY && !repeatKids(ks))
+        ))
       );
       if (expand) {
         const w = [...(wrapOf.get(n) || []), n];
@@ -160,11 +165,16 @@ export function classify(sec, ctx) {
   let type = 'content';
   if (n.t === 'header' || (n.a && n.a.role === 'banner') || n.t === 'nav' || (/(^|[\s_-])(header|navbar|nav|topbar)([\s_-]|$)/.test(cls) && h < 220 && idx <= 2) || (idx <= 1 && h < 140 && f.links >= 2 && f.maxFont < 32)) type = 'header';
   else if (idx === 0 && h < 70 && f.chars < 200) type = 'banner';
-  else if (n.t === 'footer' || (n.a && n.a.role === 'contentinfo') || /(^|[\s_-])footer/.test(cls) || (idx >= total - 2 && (f.copyright || f.links >= 8))) type = 'footer';
+  else if (
+    (n.t === 'footer' || (n.a && n.a.role === 'contentinfo') || /(^|[\s_-])footer\b/.test(cls) ||
+    (idx === total - 1 && (f.copyright || (f.links >= 8 && f.maxFont < 28 && !f.h1))) ||
+    (idx >= total - 2 && f.copyright && !f.h1)) &&
+    n.t !== 'main' && !f.h1
+  ) type = 'footer';
   else if (f.prices >= 2 && reps.some((g) => g.count >= 2) && !(f.h1 && f.prices < 3 && h < ctx.vh * 0.9)) type = 'pricing';
   else if (f.h1 && (f.paras >= 4 || f.chars > 1500 || ((f.articles >= 1 || f.prose >= 1) && !reps.some((g) => g.count >= 3 && !g.simple)))) type = 'article';
   else if (y < ctx.vh * 1.1 && idx <= 3 && (f.h1 > 0 || f.maxFont >= 40) && !(ctx.prev || []).some((x) => !['header', 'banner'].includes(x)) && !(reps.some((g) => g.count >= 3 && !g.simple) && (f.times >= 2 || /blog|news|post|articles|новост|блог|стать|журнал|team|команда/.test(hay)))) type = 'hero';
-  else if (f.details >= 2 || f.expand >= 3 || /faq|frequently|вопрос|q&a/.test(hay)) type = 'faq';
+  else if (f.details >= 2 || /faq|frequently|вопрос|q&a/.test(hay) || (f.expand >= 2 && f.headings.some((h) => /\?|how|what|why|когда|как|что/i.test(h.text)))) type = 'faq';
   else if (f.prices >= 2 || /pricing|plans|тариф|стоимост|цены/.test(hay)) type = 'pricing';
   else if (f.quotes >= 1 || /testimonial|review|отзыв|говорят|о нас говорят|what (people|our|customers)|loved by/.test(hay)) type = 'testimonials';
   else if (f.forms > 0 || f.inputs >= 2) type = f.inputs <= 2 ? 'newsletter' : 'form';

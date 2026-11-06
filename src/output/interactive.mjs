@@ -428,21 +428,26 @@ export function AnimateOnScroll({
       setVisible(true);
       return;
     }
+    const timer = setTimeout(() => setVisible(true), 1200);
     const obs = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
             setVisible(true);
+            clearTimeout(timer);
             if (once) obs.disconnect();
           } else if (!once) {
             setVisible(false);
           }
         }
       },
-      { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+      { threshold: 0.01, rootMargin: '50px 0px 50px 0px' }
     );
     obs.observe(el);
-    return () => obs.disconnect();
+    return () => {
+      clearTimeout(timer);
+      obs.disconnect();
+    };
   }, [once]);
 
   const initTf = INITIAL_TRANSFORM[preset] || INITIAL_TRANSFORM['fade-up'];

@@ -260,7 +260,8 @@ export function createSkeleton(ctx) {
     if (md.type === 'iframe') { if (md.src) a.push(slotAttr(st, 'src', md.src, 'src')); if (md.title) a.push(jsxAttr('title', md.title)); a.push('allowFullScreen'); if (c) a.push(c); return `${headTag('iframe', a)} />`; }
     if (md.type === 'audio') { if (md.src) a.push(jsxAttr('src', md.src)); a.push('controls'); if (c) a.push(c); return `${headTag('audio', a)} />`; }
     if (md.type === 'canvas' && md.snapshot) {
-      a.push(jsxAttr('src', md.snapshot), 'alt=""', 'aria-hidden="true"'); if (c) a.push(c);
+      const canvasCls = c ? (c.includes('object-') ? c : c.replace(/className="([^"]*)"/, 'className="$1 object-cover"')) : 'className="object-cover"';
+      a.push(jsxAttr('src', md.snapshot), 'alt=""', 'aria-hidden="true"', canvasCls);
       return `${headTag('img', a)} />${comment(`снимок canvas/WebGL ${N.r[2]}×${N.r[3]}: в исходнике рисуется скриптом (анимация) — здесь статичная замена`)}`;
     }
     if (c) a.push(c); a.push('aria-hidden="true"');

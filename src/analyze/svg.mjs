@@ -8,7 +8,7 @@ function styleObj(css) {
     return `${key}: ${JSON.stringify(v)}`;
   }).filter(Boolean);
   const hasCustom = pairs.some((p) => p.startsWith('"--'));
-  return `{ ${pairs.join(', ')} }${hasCustom ? ' as Record<string, any>' : ''}`;
+  return `{ ${pairs.join(', ')} }${hasCustom ? ' as any' : ''}`;
 }
 export function prefixIds(markup, prefix) {
   const ids = [...markup.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
