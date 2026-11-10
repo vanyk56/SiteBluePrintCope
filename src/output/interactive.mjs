@@ -610,6 +610,12 @@ function mergeModuleImport(code, mod, symbols) {
   return lines.join('\n');
 }
 
+const escRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// function replacer on purpose: the injected lines hold site texts ("$129", "$&") that String.replace would
+// otherwise expand as $1 / $& patterns and corrupt the component
+const injectState = (code, stateLines) => code.replace(/(export function \w+\(\)\s*\{\n)/, (m) => m + stateLines.join('\n') + '\n');
+
 export function enhanceSection(code, render, opts = {}) {
   const { tabGroups = [], lang = 'ru', catalogTools = true, cart = false } = opts;
   const data = (render && render.data) || [];
@@ -652,7 +658,7 @@ export function enhanceSection(code, render, opts = {}) {
         s = s.replace(/aria-(?:selected|pressed)=\{item\.\w+\}/, 'aria-selected={i === tab}');
         if (!/onClick=/.test(s)) s = s.replace(/key=\{i\}/, 'key={i} onClick={() => setTab(i)}');
         if (classField && activeCls && inactiveCls && activeCls !== inactiveCls) {
-          s = s.replace(`\${item.${classField}}`, `\${i === tab ? ${jsEsc(activeCls)} : ${jsEsc(inactiveCls)}}`);
+          s = s.replace(`\${item.${classField}}`, () => `\${i === tab ? ${jsEsc(activeCls)} : ${jsEsc(inactiveCls)}}`);
         }
         return s;
       }
@@ -686,7 +692,7 @@ export function enhanceSection(code, render, opts = {}) {
       ];
 
       // Check for single ungrouped articles outside .map() in the same grid
-      const singleRe = /(\{\/\*\s*элемент №\d+[^*]*\*\/\}\s*\n)(\s*)(<(?:article|div|li)\b[\s\S]*?<\/(?:article|div|li)>)/g;
+      const singleRe = /(\{\/\*\s*элемент №\d+[^*]*\*\/\}\s*\n)(\s*)(<AnimateOnScroll\b[\s\S]*?<\/AnimateOnScroll>|<(?:article|div|li)\b[\s\S]*?<\/(?:article|div|li)>)/g;
       let hasSingle = false;
       next = next.replace(singleRe, (m, cmt, ind, block) => {
         const hMatch = /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/.exec(block);
@@ -720,13 +726,22 @@ export function enhanceSection(code, render, opts = {}) {
 
       // Replace gridArr.map with gridArrView.map + empty state
       next = next.replace(new RegExp(`\\{${gridArr.name}\\.map\\(\\(item,\\s*i\\)\\s*=>\\s*\\(`), `{${gridArr.name}View.map((item, i) => (`);
+      // Templates split into index ranges (`.map((item, i) => i < 6 && (` … a differently styled card … `i >= 6 && (`)
+      // keep the source order, so the filter is applied per item instead of swapping the array (before this the
+      // category tabs of such catalogs highlighted but filtered nothing).
+      const rangedRe = new RegExp(`\\{${gridArr.name}\\.map\\(\\(item,\\s*i\\)\\s*=>\\s*((?:i\\s*(?:[<>]=?|===)\\s*\\d+\\s*&&\\s*)+)\\(`, 'g');
+      if (rangedRe.test(next)) {
+        rangedRe.lastIndex = 0;
+        next = next.replace(rangedRe, (m, cond) => `{${gridArr.name}.map((item, i) => ${cond}${gridArr.name}Shown.has(item) && (`);
+        stateLines.push(`  const ${gridArr.name}Shown = new Set(${gridArr.name}View);`);
+      }
       const emptyMsg = lang === 'en' ? 'Nothing found.' : 'Ничего не найдено.';
       next = next.replace(
         new RegExp(`(\\{${gridArr.name}View\\.map\\(\\(item,\\s*i\\)\\s*=>\\s*\\([\\s\\S]*?\\n\\s*\\)\\)\\})`),
         `$1\n        {${gridArr.name}View.length === 0 ? <p className="col-span-full py-8 text-center opacity-70">${emptyMsg}</p> : null}`
       );
 
-      next = next.replace(/(export function \w+\(\)\s*\{\n)/, `$1${stateLines.join('\n')}\n`);
+      next = injectState(next, stateLines);
       features.push(`catalog: фильтр «${matchedGroup.labels.join(' / ')}»${catalogTools ? ', поиск, сортировка' : ''}`);
     } else if (items.some((it) => it.panel)) {
       // Tab panel text switching mode
@@ -746,9 +761,41 @@ export function enhanceSection(code, render, opts = {}) {
           `  const [tab, setTab] = useState(${activeIdx});`,
           `  const ${panelVar}: string[][] = ${JSON.stringify(panelParagraphs)};`,
         ];
-        next = next.replace(/(export function \w+\(\)\s*\{\n)/, `$1${stateLines.join('\n')}\n`);
+        next = injectState(next, stateLines);
         features.push(`tabs: переключение панелей «${matchedGroup.labels.join(' / ')}»`);
       }
+    } else {
+      // Tabs without role="tabpanel" (a row of buttons that swaps some text): the probe recorded which lines
+      // disappear (removedText) and which appear (added) per tab → the swapped elements become slots.
+      const lines = (t) => String(t || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+      const firstOther = items.find((it) => !it.active && lines(it.removedText).length);
+      const baseLines = firstOther ? lines(firstOther.removedText) : [];
+      const perTab = items.map((it) => (it.active ? baseLines : lines(it.added)));
+      const slotRe = (txt) => new RegExp(`(<(h[1-6]|p|div|span|li|td|dd|dt|blockquote|figcaption)\\b[^<>]*>)${escRe(jsxText(txt))}(</\\2>)`, 'g');
+      const usable = baseLines.length > 0 && baseLines.length <= 40
+        && perTab.every((p) => p.length > 0 && p.length <= baseLines.length)
+        && baseLines.every((l) => (next.match(slotRe(l)) || []).length === 1);
+      if (usable) {
+        const panelVar = `${tabArr.name}Panels`;
+        const short = perTab.some((p) => p.length < baseLines.length);
+        baseLines.forEach((l, k) => {
+          next = next.replace(slotRe(l), (m, open, tag, close) => (short && k > 0
+            ? `{${panelVar}[tab][${k}] ? ${open}{${panelVar}[tab][${k}]}${close} : null}`
+            : `${open}{${panelVar}[tab][${k}]}${close}`));
+        });
+        const stateLines = [
+          `  const [tab, setTab] = useState(${activeIdx});`,
+          `  const ${panelVar}: string[][] = ${JSON.stringify(perTab)};`,
+        ];
+        next = injectState(next, stateLines);
+        features.push(`tabs: переключение текста «${matchedGroup.labels.join(' / ')}»`);
+      }
+    }
+    // the tab buttons already call setTab(i): the state must exist even when no content mode matched
+    // (the active tab still highlights; before this guard such sections failed `next build` with TS2304)
+    if (/\bsetTab\(|\btab\b\s*[?=\]]/.test(next) && !/const \[tab, setTab\]/.test(next)) {
+      next = injectState(next, [`  const [tab, setTab] = useState(${activeIdx});`]);
+      features.push(`tabs: подсветка активной вкладки «${matchedGroup.labels.join(' / ')}» (содержимое вкладок — в блюпринте, §7)`);
     }
   }
 

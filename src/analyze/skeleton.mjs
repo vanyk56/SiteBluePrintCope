@@ -97,7 +97,7 @@ export function createSkeleton(ctx) {
     if (S.shadow && S.shadow !== 'none') cls.push(`shadow-[${arb(colorsToHex(S.shadow))}]`);
     if (S.padding && S.padding !== '0px') cls.push(`p-[${arb(S.padding)}]`);
     if (S.minWidth && !/^(auto|0px)$/.test(S.minWidth)) cls.push(`min-w-[${arb(S.minWidth)}]`);
-    const links = (d.links || []).slice(0, 40).map((l) => { const L = ctx.linkFor(l.href); if (L.internal) st.sh.link = true; const tag = L.internal ? 'Link' : 'a'; return `${ind}  <${tag} ${jsxAttr('href', L.href)} className="block rounded-md px-3 py-2 whitespace-nowrap hover:bg-black/5">${jsxText(l.text || l.href)}</${tag}>`; });
+    const links = (d.links || []).slice(0, 40).map((l) => { const L = ctx.linkFor(l.href); if (L.internal) st.sh.link = true; const tag = L.internal ? 'Link' : 'a'; return `${ind}  <${tag} ${jsxAttr('href', L.href)}${L.internal && L.known === false ? ' prefetch={false}' : ''} className="block rounded-md px-3 py-2 whitespace-nowrap hover:bg-black/5">${jsxText(l.text || l.href)}</${tag}>`; });
     const body = links.length ? links.join('\n') : `${ind}  <div className="whitespace-pre-line">${jsxText(d.text || '')}</div>`;
     return `${ind}${comment(`выпадающее меню «${d.label}»: открывается при наведении${d.screenshot ? ' — скриншот ' + d.screenshot : ''}`)}\n${ind}<div className="${cls.join(' ')}">\n${body}\n${ind}</div>`;
   }
@@ -279,6 +279,7 @@ export function createSkeleton(ctx) {
       const L = ctx.linkFor(A.href);
       if (L.internal) { tag = 'Link'; st.sh.link = true; }
       a.push(slotAttr(st, 'href', L.href, 'href'));
+      if (L.internal && L.known === false) a.push('prefetch={false}');
       if (A.target === '_blank') a.push('target="_blank"', 'rel="noopener noreferrer"');
     }
     if (A.role && !(N.t === 'a' && A.role === 'link')) a.push(jsxAttr('role', A.role));

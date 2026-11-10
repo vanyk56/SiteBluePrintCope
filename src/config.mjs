@@ -140,6 +140,7 @@ site-blueprint 2 — сайт (URL или захват расширения) →
   --locale ru-RU           язык браузера
   --headful                показать окно браузера
   --browser-path <exe>     свой Chrome/Chromium (или BROWSER_PATH в .env); --channel chrome|msedge
+  --proxy <url>            прокси для браузера: http://user:pass@host:3128, socks5://host:1080 (или SB_PROXY в .env)
   --delay <ms> (300), --timeout <ms> (45000), --max-nodes <n> (4000)
   --max-assets <n> (400), --max-asset-mb <n> (15), --asset-retries <n> (3)
   --no-sitemap / --no-cookies / --no-html
