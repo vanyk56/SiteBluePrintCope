@@ -16,9 +16,9 @@ export function prefixIds(markup, prefix) {
   let s = markup;
   for (const id of new Set(ids)) {
     const esc = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    s = s.replace(new RegExp(`\\sid="${esc}"`, 'g'), ` id="${prefix}-${id}"`)
-      .replace(new RegExp(`url\\(#${esc}\\)`, 'g'), `url(#${prefix}-${id})`)
-      .replace(new RegExp(`(href|xlink:href)="#${esc}"`, 'g'), `$1="#${prefix}-${id}"`);
+    s = s.replace(new RegExp(`\\sid="${esc}"`, 'g'), () => ` id="${prefix}-${id}"`)
+      .replace(new RegExp(`url\\(#${esc}\\)`, 'g'), () => `url(#${prefix}-${id})`)
+      .replace(new RegExp(`(href|xlink:href)="#${esc}"`, 'g'), (m, attr) => `${attr}="#${prefix}-${id}"`);
   }
   return s;
 }

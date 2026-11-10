@@ -205,7 +205,7 @@ export function pickSiteComponent(site, query = '') {
   if (!q || q === '0') return site.components[0];
   if (/^\d+$/.test(q)) {
     const idx = Number(q);
-    return site.components[idx] || site.components[0];
+    return site.components[idx] || null; // out of range: no silent fallback to another component
   }
   // Match by exact name or type
   let hit = site.components.find((c) => c.name.toLowerCase() === q || c.type.toLowerCase() === q);
@@ -217,5 +217,10 @@ export function pickSiteComponent(site, query = '') {
       c.type.toLowerCase().includes(q) ||
       (c.heading && c.heading.toLowerCase().includes(q))
   );
-  return hit || site.components[0];
+  return hit || null;
+}
+
+/** one line per component: "0  HeroSection  hero  «Heading»" — shown when a query matches nothing */
+export function listSiteComponents(site) {
+  return ((site && site.components) || []).map((c, i) => `${String(i).padStart(3)}  ${c.name}  [${c.type}]${c.heading ? '  «' + String(c.heading).slice(0, 60) + '»' : ''}`);
 }

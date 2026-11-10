@@ -100,6 +100,8 @@ export async function main(argv = process.argv.slice(2)) {
   const { opts: cli, positional } = parseArgs(argv);
   if (cli.help) { console.log(HELP); return 0; }
   if (cli.version) { console.log(pkg.version); return 0; }
+  const badNum = Object.entries(cli).find(([k, v]) => typeof v === 'number' && !Number.isFinite(v));
+  if (badNum) { log.error(`Опция --${badNum[0].replace(/[A-Z]/g, (ch) => '-' + ch.toLowerCase())} ждёт число. См. site-blueprint --help`); return 2; }
   const opts = { ...DEFAULTS, ...cli };
   log.setVerbose(!!opts.verbose);
   const t0 = Date.now();
@@ -132,10 +134,14 @@ export async function main(argv = process.argv.slice(2)) {
     const dir = path.resolve(String(positional[1] || opts.from || '.'));
     if (!(await exists(path.join(dir, 'data', 'crawl.json')))) { log.error(`В ${dir} нет data/crawl.json`); return 2; }
     const { loadCrawl, buildSite } = await import('./analyze/site.mjs');
-    const { pickSiteComponent } = await import('./analyze/picker.mjs');
+    const { pickSiteComponent, listSiteComponents } = await import('./analyze/picker.mjs');
     const site = buildSite(await loadCrawl(dir), opts);
-    const comp = pickSiteComponent(site, positional[2] || '');
-    if (!comp) { log.error('Компонент не найден'); return 1; }
+    const query = String(positional[2] ?? '').trim();
+    const list = () => listSiteComponents(site).join('\n');
+    // no query: show what can be picked (stdout stays pipe-friendly when a component is printed)
+    if (!query) { console.log(list() || 'В этом захвате нет компонентов.'); console.error(color.dim(`\nУкажи тип, имя, текст заголовка или номер: site-blueprint pick ${positional[1] || '.'} pricing`)); return 0; }
+    const comp = pickSiteComponent(site, query);
+    if (!comp) { log.error(`Компонент «${query}» не найден. Доступные:\n${list()}`); return 1; }
     console.log(comp.code);
     return 0;
   }
@@ -147,6 +153,7 @@ export async function main(argv = process.argv.slice(2)) {
   // site-blueprint heal <dir> — build the generated project and fix compile errors (no crawl)
   if (cmd === 'heal') {
     const dir = path.resolve(String(positional[1] || opts.from || '.'));
+    if (!(await exists(path.join(dir, 'data', 'crawl.json')))) { log.error(`В ${dir} нет data/crawl.json — укажи папку, которую создал site-blueprint.`); return 2; }
     return runPipeline(dir, { ...opts, only: 'verify' }, { t0 });
   }
   // site-blueprint listen --port 3005 — local endpoint for the browser extension
@@ -208,8 +215,12 @@ export async function main(argv = process.argv.slice(2)) {
 
 // analysis → starter project → LLM → blueprint → self-healing build + visual regression → zip.
 // Shared by the crawler, --from, `import` (extension ZIP) and `listen` (extension → localhost).
+/** result of the most recent pipeline run in this process (used by the MCP server to report where the output is) */
+export const lastRun = { outDir: null, pages: 0, components: 0, check: null };
+
 export async function runPipeline(outDir, opts, { t0 = Date.now(), crawlSummary = null, hooks = null, source = 'crawl' } = {}) {
   opts = { ...DEFAULTS, ...opts };
+  Object.assign(lastRun, { outDir, pages: 0, components: 0, check: null });
   if (!hooks) { const { createHooks } = await import('./core/hooks.mjs'); hooks = await createHooks(opts); }
   if (!crawlSummary) crawlSummary = await readJSON(path.join(outDir, 'data', 'crawl.json')).catch(() => null);
   const verifyOnly = opts.only === 'verify';
@@ -271,6 +282,7 @@ export async function runPipeline(outDir, opts, { t0 = Date.now(), crawlSummary 
     catch (e) { log.warn('Архив не создан: ' + String((e && e.message) || e).split('\n')[0]); }
   }
   await hooks.emit('afterFinish', { outDir, site, project, check });
+  Object.assign(lastRun, { outDir, pages: site.pages.length, components: site.components.length, check: check ? { summary: check.summaryLine, exitCode: check.exitCode || 0 } : null });
 
   // ---------- summary ----------
   const rel = (f) => { const r = path.relative(process.cwd(), f); return !r ? '.' : r.startsWith('..') ? f : r; };

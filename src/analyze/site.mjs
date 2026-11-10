@@ -109,7 +109,8 @@ export function buildSite(data, opts = {}) {
     const r = routes.get(normalizeUrl(href));
     let p = r || ((() => { try { return decodeURIComponent(u.pathname); } catch { return u.pathname; } })().replace(/\/+$/, '') || '/');
     if (!r && u.search) p += u.search;
-    return { href: p + (u.hash || ''), internal: true };
+    // known: the page is part of the clone; links to pages that were not crawled must not be prefetched (404 noise)
+    return { href: p + (u.hash || ''), internal: true, known: !!r };
   };
 
   // ---- global (layout) sections: header/footer/banner repeated on most pages ----

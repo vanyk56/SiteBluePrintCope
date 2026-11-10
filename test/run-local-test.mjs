@@ -72,7 +72,7 @@ try {
   await walkP(path.join(dir, 'project'));
   const shopTsx = proj.filter((f) => f.text.includes('Каталог товаров')).map((f) => f.text).join('\n');
   const cardRows = (shopTsx.match(/\{ color: "#[0-9a-f]{6}"/g) || []).length;
-  ok(/\.map\(\(item, i\) => (?:i (?:[<>]=?|===) \d+ && (?:i < \d+ && )?)?\(\s*<article/.test(shopTsx) && /--item-color/.test(shopTsx) && /var\(--item-color\)/.test(shopTsx) && cardRows >= 40, `карточки товаров → один шаблон .map() (порядок исходника сохранён) + цвета свечения через CSS-переменную (строк данных: ${cardRows})`);
+  ok(/\.map\(\(item, i\) => (?:i (?:[<>]=?|===) \d+ && (?:i < \d+ && )?)?(?:\w+Shown\.has\(item\) && )?\(\s*<article/.test(shopTsx) && /--item-color/.test(shopTsx) && /var\(--item-color\)/.test(shopTsx) && cardRows >= 40, `карточки товаров → один шаблон .map() (порядок исходника сохранён) + цвета свечения через CSS-переменную (строк данных: ${cardRows})`);
   ok(!/секция усечена/.test(shopTsx), 'секция магазина не усечена по лимиту');
   ok(/disabled/.test(shopTsx) && shopTsx.includes('Недоступно') && shopTsx.includes('Вайп-блок'), 'особая карточка (бейдж + disabled-кнопка) сохранена');
   ok(/line-clamp-2/.test(shopTsx) && !/flow-root[^"]*line-clamp-2/.test(shopTsx), 'line-clamp-2 без конфликтующего display');
@@ -114,6 +114,8 @@ try {
   ok(snapIndex.length > 5000 && snapShop.length > 5000 && !/<script\b/i.test(snapIndex + snapShop) && /\.\.\/project\/public\//.test(snapShop) && /href="\.\/pricing\.html"/.test(snapIndex), 'автономные снимки (SingleFile): без скриптов, ассеты локально, ссылки между страницами');
   const inter = ['Cart', 'Modal', 'MobileMenu', 'Disclosure'].map((n) => proj.find((f) => f.p.endsWith(path.join('components', 'interactive', n + '.tsx'))));
   ok(inter.every((f) => f && /^'use client';/.test(f.text)), 'интерактивные компоненты (корзина, модалки, меню, раскрытия) — "use client"');
+  ok(/\w+Shown\.has\(item\)|\w+View\.map\(/.test(shopTsx), 'фильтр категорий действительно применяется к карточкам (а не только подсвечивает вкладку)');
+  ok(proj.some((f) => f.text.includes('Правила сервера') && /const \[tab, setTab\] = useState/.test(f.text) && /Panels\[tab\]\[0\]/.test(f.text)), 'вкладки правил без role="tabpanel": состояние объявлено, текст переключается');
   ok(/filterCatalog/.test(shopTsx) && /useState/.test(shopTsx) && await has('project/lib/catalog.ts'), 'каталог: фильтр категорий на useState (поиск/сортировка — опция --catalog-tools)');
   const vr = await read('VERIFICATION_REPORT.md');
   ok(vr.startsWith('# VERIFICATION_REPORT'), 'VERIFICATION_REPORT.md создан');

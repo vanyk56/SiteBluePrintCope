@@ -242,8 +242,8 @@ export async function probeInteractions(page, interactive, { budgetMs = 25000 } 
         if (!snap) continue;
         const now = new Set(snap.lines);
         const added = snap.lines.filter((l) => !baseSet.has(l));
-        const removed = base.lines.filter((l) => !now.has(l)).length;
-        rec.items.push({ id: t.id, label: (p && p.label) || t.text, active: t === active, panel: p && p.text ? p.text.slice(0, 4000) : '', added: added.join('\n').slice(0, 5000), addedLines: added.length, removed, heads: snap.heads.slice(0, 300) });
+        const gone = base.lines.filter((l) => !now.has(l)); const removed = gone.length;
+        rec.items.push({ id: t.id, label: (p && p.label) || t.text, active: t === active, panel: p && p.text ? p.text.slice(0, 4000) : '', added: added.join('\n').slice(0, 5000), addedLines: added.length, removed, removedText: gone.join('\n').slice(0, 5000), heads: snap.heads.slice(0, 300) });
       } catch (e) { log.debug('tab', t.id, String(e.message).split('\n')[0]); }
     }
     if (active) { try { await page.locator(`[data-sb-id="${active.id}"]`).first().click({ timeout: 1500, force: true }); await sleep(200); } catch {} }

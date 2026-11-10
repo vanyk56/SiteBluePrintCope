@@ -14,8 +14,23 @@ const SYSTEM_BROWSERS = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ];
 
+/** --proxy http://user:pass@host:3128 (or SB_PROXY) → Playwright proxy settings; null when not set / invalid */
+export function proxySettings(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return null;
+  let u; try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : 'http://' + v); } catch { return null; }
+  if (!/^(https?|socks[45]?):$/.test(u.protocol) || !u.hostname) return null;
+  const p = { server: `${u.protocol}//${u.host}`, bypass: process.env.NO_PROXY || process.env.no_proxy || undefined };
+  if (u.username) { p.username = decodeURIComponent(u.username); p.password = decodeURIComponent(u.password || ''); }
+  return p;
+}
+
 export async function launchBrowser(opts) {
   const base = { headless: !opts.headful };
+  const rawProxy = opts.proxy || process.env.SB_PROXY;
+  const proxy = proxySettings(rawProxy);
+  if (rawProxy && !proxy) log.warn('Некорректный адрес прокси (--proxy / SB_PROXY) — игнорирую. Пример: http://user:pass@host:3128');
+  if (proxy) { base.proxy = proxy; log.info(`Прокси браузера: ${proxy.server}`); }
   const explicit = opts.browserPath || process.env.BROWSER_PATH;
   if (explicit) return chromium.launch({ ...base, executablePath: explicit });
   if (opts.channel) return chromium.launch({ ...base, channel: opts.channel });

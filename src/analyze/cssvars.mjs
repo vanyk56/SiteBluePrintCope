@@ -145,7 +145,7 @@ export async function sanitizeProjectClasses(root, ctx = null) {
   }
   if (reg.size && globals) {
     const block = reg.css();
-    globals = /@import\s+["']tailwindcss["'];?\s*\n/.test(globals) ? globals.replace(/(@import\s+["']tailwindcss["'];?\s*\n)/, `$1\n${block}\n`) : block + '\n' + globals;
+    globals = /@import\s+["']tailwindcss["'];?\s*\n/.test(globals) ? globals.replace(/(@import\s+["']tailwindcss["'];?\s*\n)/, (m) => `${m}\n${block}\n`) : block + '\n' + globals;
     if (ctx) await ctx.write('app/globals.css', globals); else await fsp.writeFile(globalsFile, globals);
     changed.push('app/globals.css');
   }

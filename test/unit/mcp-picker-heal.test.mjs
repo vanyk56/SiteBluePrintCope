@@ -106,6 +106,10 @@ test('Component Picker: pickSiteComponent matches by type, name, heading, or ind
   assert.equal(pickSiteComponent(site, 'pricing').name, 'PricingSection');
   assert.equal(pickSiteComponent(site, 'faster').name, 'HeroSection');
   assert.equal(pickSiteComponent(site, '1').name, 'HeroSection');
+  // nothing matches → null (no silent fallback to the first component)
+  assert.equal(pickSiteComponent(site, 'nosuchthing'), null);
+  assert.equal(pickSiteComponent(site, '99'), null);
+  assert.equal(pickSiteComponent(site, '').name, 'Header');
 });
 
 test('Visual Auto-Heal: findDegradedSections & fixVisualDriftDeterministic repair rigid widths and heights', () => {

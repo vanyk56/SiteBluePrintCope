@@ -73,6 +73,20 @@ export const MCP_TOOLS = [
   },
 ];
 
+// Output folders the MCP resources are listed from: ./output of the client's working directory, the tool's own
+// output/ and every base folder a clone was written to during this session (clone_site with outDir).
+const outputBases = new Set([path.resolve('output'), path.join(TOOL_DIR, 'output')]);
+function rememberOutput(outDir) { if (outDir) outputBases.add(path.dirname(path.resolve(outDir))); }
+async function listRuns() {
+  const runs = new Map();
+  for (const base of outputBases) {
+    let dirs = [];
+    try { dirs = await fsp.readdir(base, { withFileTypes: true }); } catch { continue; }
+    for (const d of dirs) if (d.isDirectory() && !runs.has(d.name) && (await exists(path.join(base, d.name, 'data', 'crawl.json')))) runs.set(d.name, path.join(base, d.name));
+  }
+  return runs;
+}
+
 export async function handleMcpToolCall(name, args = {}) {
   if (name === 'clone_site') {
     let url = String(args.url || '').trim();
@@ -90,8 +104,22 @@ export async function handleMcpToolCall(name, args = {}) {
     if (args.outDir) cliArgs.push('--out', String(args.outDir));
     if (!args.verify) cliArgs.push('--no-verify');
     if (!args.llm) cliArgs.push('--no-llm');
+    const { lastRun } = await import('../cli.mjs');
+    lastRun.outDir = null;
     const code = await main(cliArgs);
-    return { ok: code === 0, exitCode: code, url: start };
+    const outDir = lastRun.outDir;
+    const res = { ok: code === 0 && !!outDir, exitCode: code, url: start, outDir };
+    if (outDir) {
+      rememberOutput(outDir);
+      const f = async (rel) => ((await exists(path.join(outDir, rel))) ? path.join(outDir, rel) : null);
+      Object.assign(res, {
+        blueprint: await f('SITE_CLONE_BLUEPRINT.md'), project: await f('project'), verificationReport: await f('VERIFICATION_REPORT.md'),
+        designTokens: await f(path.join('data', 'design-tokens.json')), screenshots: await f('screenshots'),
+        pages: lastRun.pages, components: lastRun.components, check: lastRun.check,
+        next: 'Read the blueprint, then `cd project && npm install && npm run dev`. Use pick_component / extract_design_tokens with fromDir = outDir.',
+      });
+    }
+    return res;
   }
 
   if (name === 'extract_design_tokens') {
@@ -101,12 +129,14 @@ export async function handleMcpToolCall(name, args = {}) {
       if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
       const start = normalizeUrl(url);
       const host = new URL(start).hostname.replace(/^www\./, '').replace(/[^a-z0-9.-]+/gi, '-');
+      if (!start) throw new Error('Invalid URL: ' + url);
       outDir = path.resolve('output', `${host}-mcp-${Date.now()}`);
       const { crawl } = await import('../crawler.mjs');
       const { createHooks } = await import('../core/hooks.mjs');
       const opts = { ...DEFAULTS, depth: 1, maxPages: 1, mobile: false, verify: false, llm: false };
       const hooks = await createHooks(opts);
       await crawl(start, { ...opts, hooks }, outDir);
+      rememberOutput(outDir);
     }
     if (!outDir || !(await exists(path.join(outDir, 'data', 'crawl.json')))) {
       throw new Error('Provide a valid fromDir containing data/crawl.json or a live url');
@@ -135,7 +165,7 @@ export async function handleMcpToolCall(name, args = {}) {
     const { pickSiteComponent } = await import('../analyze/picker.mjs');
     const site = buildSite(await loadCrawl(outDir), DEFAULTS);
     const comp = pickSiteComponent(site, args.query || '');
-    if (!comp) throw new Error('No matching component found');
+    if (!comp) throw new Error(`No component matches "${args.query}". Available: ${site.components.map((c, i) => `${i}: ${c.name} [${c.type}]`).join(', ') || 'none'}`);
     return {
       name: comp.name,
       type: comp.type,
@@ -195,40 +225,21 @@ export async function handleMcpRequest(msg) {
       return { jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } };
     }
     if (method === 'resources/list') {
-      const outBase = path.join(TOOL_DIR, 'output');
       const resources = [];
-      try {
-        const dirs = await fsp.readdir(outBase, { withFileTypes: true });
-        for (const d of dirs) {
-          if (!d.isDirectory()) continue;
-          const bp = path.join(outBase, d.name, 'SITE_CLONE_BLUEPRINT.md');
-          if (await exists(bp)) {
-            resources.push({
-              uri: `blueprint://${d.name}/SITE_CLONE_BLUEPRINT.md`,
-              name: `${d.name} — SITE_CLONE_BLUEPRINT.md`,
-              mimeType: 'text/markdown',
-              description: `Full reverse-engineering blueprint for ${d.name}`,
-            });
-          }
-          const vr = path.join(outBase, d.name, 'VERIFICATION_REPORT.md');
-          if (await exists(vr)) {
-            resources.push({
-              uri: `blueprint://${d.name}/VERIFICATION_REPORT.md`,
-              name: `${d.name} — VERIFICATION_REPORT.md`,
-              mimeType: 'text/markdown',
-              description: `Build & visual regression report for ${d.name}`,
-            });
-          }
+      for (const [run, dir] of await listRuns()) {
+        for (const [file, description] of [['SITE_CLONE_BLUEPRINT.md', 'Full reverse-engineering blueprint'], ['VERIFICATION_REPORT.md', 'Build & visual regression report']]) {
+          if (await exists(path.join(dir, file))) resources.push({ uri: `blueprint://${run}/${file}`, name: `${run} — ${file}`, mimeType: 'text/markdown', description: `${description} for ${run}` });
         }
-      } catch {}
+      }
       return { jsonrpc: '2.0', id, result: { resources } };
     }
     if (method === 'resources/read') {
       const uri = String((params && params.uri) || '');
       const m = /^blueprint:\/\/([^/]+)\/(SITE_CLONE_BLUEPRINT\.md|VERIFICATION_REPORT\.md)$/.exec(uri);
       if (!m || m[1].includes('..')) throw new Error(`Invalid resource URI: ${uri}`);
-      const file = path.join(TOOL_DIR, 'output', m[1], m[2]);
-      const text = await fsp.readFile(file, 'utf8');
+      const dir = (await listRuns()).get(m[1]);
+      if (!dir) throw new Error(`Unknown resource: ${uri}`);
+      const text = await fsp.readFile(path.join(dir, m[2]), 'utf8');
       return {
         jsonrpc: '2.0',
         id,
@@ -306,57 +317,55 @@ export async function handleMcpRequest(msg) {
   }
 }
 
-export async function startMcpServer() {
-  // Redirect console.log to stderr so stdout remains pure JSON-RPC
-  const origWrite = process.stdout.write.bind(process.stdout);
-  console.log = (...a) => process.stderr.write(a.join(' ') + '\n');
+export async function startMcpServer({ input = process.stdin, write = null } = {}) {
+  // stdout carries JSON-RPC only: everything the pipeline prints goes to stderr
+  const origWrite = write || process.stdout.write.bind(process.stdout);
+  for (const k of ['log', 'info', 'debug', 'warn']) console[k] = (...a) => process.stderr.write(a.join(' ') + '\n');
 
   let useContentLength = false;
   const send = (obj) => {
     if (!obj) return;
     const json = JSON.stringify(obj);
-    if (useContentLength) {
-      origWrite(`Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\n\r\n${json}`);
-    } else {
-      origWrite(json + '\n');
-    }
+    if (useContentLength) origWrite(`Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\n\r\n${json}`);
+    else origWrite(json + '\n');
+  };
+  // Requests are handled strictly one after another: the pipeline (browser, build, shared node_modules) is not
+  // re-entrant, and two interleaved clone_site calls would mix up their results.
+  let chain = Promise.resolve();
+  const handle = (text) => {
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }); return; }
+    const one = async (msg) => { try { return await handleMcpRequest(msg); } catch (e) { return msg && msg.id != null ? { jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: String((e && e.message) || e) } } : null; } };
+    chain = chain.then(async () => {
+      if (Array.isArray(parsed)) { const out = (await Promise.all(parsed.map(one))).filter(Boolean); if (out.length) send(out); }
+      else send(await one(parsed));
+    });
   };
 
   let buf = Buffer.alloc(0);
-  process.stdin.on('data', async (chunk) => {
+  input.on('data', (chunk) => {
     buf = Buffer.concat([buf, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
     while (buf.length > 0) {
-      const str = buf.toString('utf8');
-      if (str.startsWith('Content-Length:')) {
+      if (/^content-length:/i.test(buf.subarray(0, 15).toString('latin1'))) {
         useContentLength = true;
         const headerEnd = buf.indexOf('\r\n\r\n');
         if (headerEnd < 0) break;
-        const header = buf.subarray(0, headerEnd).toString('utf8');
-        const m = /Content-Length:\s*(\d+)/i.exec(header);
-        const len = m ? parseInt(m[1], 10) : 0;
-        const total = headerEnd + 4 + len;
+        const m = /Content-Length:\s*(\d+)/i.exec(buf.subarray(0, headerEnd).toString('latin1'));
+        const total = headerEnd + 4 + (m ? parseInt(m[1], 10) : 0);
         if (buf.length < total) break;
         const body = buf.subarray(headerEnd + 4, total).toString('utf8');
         buf = buf.subarray(total);
-        try {
-          const parsed = JSON.parse(body);
-          const resp = await handleMcpRequest(parsed);
-          if (resp) send(resp);
-        } catch {}
+        if (body.trim()) handle(body);
       } else {
         const nl = buf.indexOf('\n');
         if (nl < 0) break;
         const line = buf.subarray(0, nl).toString('utf8').trim();
         buf = buf.subarray(nl + 1);
-        if (!line) continue;
-        try {
-          const parsed = JSON.parse(line);
-          const resp = await handleMcpRequest(parsed);
-          if (resp) send(resp);
-        } catch {}
+        if (line) handle(line);
       }
     }
   });
-
-  return new Promise(() => {});
+  // the client closed the pipe: finish what is running and exit (no orphaned server processes)
+  return new Promise((resolve) => { input.on('end', () => chain.then(() => resolve(0))); });
 }

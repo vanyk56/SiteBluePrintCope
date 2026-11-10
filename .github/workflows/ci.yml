@@ -28,3 +28,39 @@ jobs:
 
       - name: Run unit test suite
         run: npm run test:unit
+
+  e2e:
+    name: End-to-end (real next build + visual benchmark)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      # node_modules with Next.js / React / Tailwind for the generated projects: without it the build step is
+      # skipped and broken generated code (undeclared state, invalid TSX) goes unnoticed
+      - name: Install Next.js toolchain for generated projects
+        run: |
+          mkdir -p "$RUNNER_TEMP/next-app" && cd "$RUNNER_TEMP/next-app"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund next@^16 react@^19 react-dom@^19 tailwindcss@^4 @tailwindcss/postcss@^4 typescript@^5.7 @types/node@^22 @types/react@^19 @types/react-dom@^19
+          echo "SB_NEXT_MODULES=$RUNNER_TEMP/next-app/node_modules" >> "$GITHUB_ENV"
+          echo "SB_TEST_NEXT_MODULES=$RUNNER_TEMP/next-app/node_modules" >> "$GITHUB_ENV"
+
+      - name: Full pipeline on the local fixture (crawl → project → next build → visual regression)
+        run: npm test
+
+      - name: Visual fidelity benchmark (8 fixtures, desktop + mobile)
+        run: npm run bench

@@ -1,7 +1,7 @@
 // Stage 3: writes the complete Next.js 16 + React 19 + Tailwind v4 starter project into `<outDir>/project/`.
 import path from 'node:path';
 import { writeText, ensureDir } from '../util.mjs';
-import { buildGlobalsCss } from './theme.mjs';
+import { buildGlobalsCss, bodyStyleOf } from './theme.mjs';
 import { apiProjectFiles, nextConfig } from './api.mjs';
 import { INTERACTIVE_FILES } from './interactive.mjs';
 import { jsEsc } from '../analyze/skeleton.mjs';
@@ -157,7 +157,20 @@ export function pageFile(site, p) {
 
   lines.push(`export default function Page() {`);
   lines.push(`  return (`);
-  lines.push(`    <main>`);
+  // body of this page differs from the body the layout was generated for (other colour / font size / line height):
+  // the difference goes onto the page wrapper, sections are relative to their own page's body
+  let mainCls = '';
+  try {
+    const mine = bodyStyleOf(p), base = bodyStyleOf(site.home);
+    if (p !== site.home && mine && base && site.tw && site.tw.inheritedGroups) mainCls = Object.values(site.tw.inheritedGroups(mine, base)).filter(Boolean).join(' ');
+  } catch {}
+  // <main> already lives in app/layout.tsx when the original wraps the page content itself (grid / flex shell):
+  // the page blocks must stay its direct children — a nested <main> or <div> would become the only grid item
+  // and collapse a "sidebar | article | toc" layout into one column. Fragment, or display:contents for classes.
+  const inLayoutMain = !!(site.layoutMain && site.layoutMain.cls);
+  const mainTag = inLayoutMain ? (mainCls ? 'div' : '') : 'main';
+  if (inLayoutMain && mainCls) mainCls = 'contents ' + mainCls;
+  lines.push(`    <${mainTag}${mainCls ? ` className="${mainCls}"` : ''}>`);
 
   const open = [];
   const pad = (depth) => '      ' + '  '.repeat(depth);
@@ -185,7 +198,7 @@ export function pageFile(site, p) {
     lines.push(`${pad(open.length)}</${tagFor(id)}>`);
   }
 
-  lines.push(`    </main>`);
+  lines.push(`    </${mainTag}>`);
   lines.push(`  );`);
   lines.push(`}`, '');
 
